@@ -10,7 +10,8 @@
   </node>
 
   <node pkg="dso_ros" type="dso_live" name="dso_live"
-        args="calib=$(arg calib) mode=$(arg mode)">
+        args="calib=$(arg calib) mode=$(arg mode)"
+        output="$(arg output)">
     <remap from="image" to="$(arg image)" />
   </node>
 </launch>

@@ -6,6 +6,8 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   sensor_msgs
   cv_bridge
+  tf2_ros
+  image_transport
 )
 
 set(DSO_PATH $ENV{DSO_PATH})

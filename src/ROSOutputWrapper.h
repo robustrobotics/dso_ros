@@ -23,6 +23,10 @@
 
 
 #pragma once
+
+#include <image_transport/image_transport.h>
+#include <tf2_ros/transform_broadcaster.h>
+
 #include "boost/thread.hpp"
 #include "util/MinimalImage.h"
 #include "IOWrapper/Output3DWrapper.h"
@@ -46,9 +50,14 @@ namespace IOWrap
 class ROSOutputWrapper : public Output3DWrapper
 {
 public:
-        inline ROSOutputWrapper()
+  inline ROSOutputWrapper(const ros::NodeHandle& nh):
+      nh_(nh)
         {
             printf("OUT: Created ROSOutputWrapper\n");
+
+            it_ = std::make_shared<image_transport::ImageTransport>(nh);
+            depth_pub_ = it_->advertiseCamera("depth_registered/image_rect", 5);
+
         }
 
         virtual ~ROSOutputWrapper()
@@ -100,13 +109,34 @@ public:
 
         virtual void publishCamPose(FrameShell* frame, CalibHessian* HCalib) override
         {
+          boost::lock_guard<boost::mutex> lock(pose_mtx_);
+
+          if (frame->poseValid) {
             printf("OUT: Current Frame %d (time %f, internal ID %d). CameraToWorld:\n",
                    frame->incoming_id,
                    frame->timestamp,
                    frame->id);
+            printf("pointer: %p\n", (void*)frame);
             std::cout << frame->camToWorld.matrix3x4() << "\n";
-        }
 
+            geometry_msgs::TransformStamped tf;
+
+            Sophus::SE3d pose = frame->camToWorld;
+            // pose.normalize();
+
+            tf.header.stamp.fromSec(frame->timestamp);
+            tf.header.frame_id = "dso_world";
+            tf.child_frame_id = "dso_cam";
+            tf.transform.rotation.w = pose.unit_quaternion().w();
+            tf.transform.rotation.x = pose.unit_quaternion().x();
+            tf.transform.rotation.y = pose.unit_quaternion().y();
+            tf.transform.rotation.z = pose.unit_quaternion().z();
+            tf.transform.translation.x = pose.translation()(0);
+            tf.transform.translation.y = pose.translation()(1);
+            tf.transform.translation.z = pose.translation()(2);
+            tf_pub_.sendTransform(tf);
+          }
+        }
 
         virtual void pushLiveFrame(FrameHessian* image) override
         {
@@ -146,7 +176,16 @@ public:
             }
         }
 
+ private:
+  boost::mutex pose_mtx_;
 
+  ros::NodeHandle nh_;
+
+  tf2_ros::TransformBroadcaster tf_pub_;
+
+  std::shared_ptr<image_transport::ImageTransport> it_;
+
+  image_transport::CameraPublisher depth_pub_;
 };
 
 

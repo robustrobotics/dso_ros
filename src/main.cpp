@@ -215,20 +215,20 @@ int main( int argc, char** argv )
   fullSystem->linearizeOperation=false;
 
 
+  ros::NodeHandle nh;
+  ros::Subscriber imgSub = nh.subscribe("image", 1, &vidCb);
+
   if(!disableAllDisplay)
     fullSystem->outputWrapper.push_back(new IOWrap::PangolinDSOViewer(
         (int)undistorter->getSize()[0],
         (int)undistorter->getSize()[1]));
 
 
-  fullSystem->outputWrapper.push_back(new IOWrap::ROSOutputWrapper());
+  fullSystem->outputWrapper.push_back(new IOWrap::ROSOutputWrapper(nh));
 
 
   if(undistorter->photometricUndist != 0)
     fullSystem->setGammaFunction(undistorter->photometricUndist->getG());
-
-  ros::NodeHandle nh;
-  ros::Subscriber imgSub = nh.subscribe("image", 1, &vidCb);
 
   ros::spin();
 

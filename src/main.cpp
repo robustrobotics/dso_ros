@@ -35,8 +35,6 @@
 #include "FullSystem/FullSystem.h"
 #include "util/Undistort.h"
 #include "IOWrapper/Pangolin/PangolinDSOViewer.h"
-#include "IOWrapper/OutputWrapper/SampleOutputWrapper.h"
-
 
 #include <ros/ros.h>
 #include <sensor_msgs/image_encodings.h>
@@ -45,11 +43,11 @@
 #include <geometry_msgs/PoseStamped.h>
 #include "cv_bridge/cv_bridge.h"
 
+#include "./ROSOutputWrapper.h"
 
 std::string calib = "";
 std::string vignetteFile = "";
 std::string gammaFile = "";
-bool useSampleOutput=false;
 int mode = 1;
 
 using namespace dso;
@@ -58,16 +56,6 @@ void parseArgument(char* arg)
 {
 	int option;
 	char buf[1000];
-
-	if(1==sscanf(arg,"sampleoutput=%d",&option))
-	{
-		if(option==1)
-		{
-			useSampleOutput = true;
-			printf("USING SAMPLE OUTPUT WRAPPER!\n");
-		}
-		return;
-	}
 
 	if(1==sscanf(arg,"quiet=%d",&option))
 	{
@@ -227,14 +215,13 @@ int main( int argc, char** argv )
   fullSystem->linearizeOperation=false;
 
 
-  // if(!disableAllDisplay)
-  //   fullSystem->outputWrapper.push_back(new IOWrap::PangolinDSOViewer(
-  //       (int)undistorter->getSize()[0],
-  //       (int)undistorter->getSize()[1]));
+  if(!disableAllDisplay)
+    fullSystem->outputWrapper.push_back(new IOWrap::PangolinDSOViewer(
+        (int)undistorter->getSize()[0],
+        (int)undistorter->getSize()[1]));
 
 
-  if(useSampleOutput)
-    fullSystem->outputWrapper.push_back(new IOWrap::SampleOutputWrapper());
+  fullSystem->outputWrapper.push_back(new IOWrap::ROSOutputWrapper());
 
 
   if(undistorter->photometricUndist != 0)

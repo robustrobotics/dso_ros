@@ -24,8 +24,12 @@
 
 #pragma once
 
+#include <string>
+#include <limits>
+
 #include <image_transport/image_transport.h>
 #include <tf2_ros/transform_broadcaster.h>
+#include <cv_bridge/cv_bridge.h>
 
 #include "boost/thread.hpp"
 #include "util/MinimalImage.h"
@@ -47,6 +51,42 @@ class FrameShell;
 namespace IOWrap
 {
 
+void publishDepthMap(const image_transport::CameraPublisher& pub,
+                     const std::string& frame_id,
+                     double time, const Eigen::Matrix3f& K,
+                     const cv::Mat1f& depth_est) {
+  // Publish depthmap.
+  std_msgs::Header header;
+  header.stamp.fromSec(time);
+  header.frame_id = frame_id;
+
+  sensor_msgs::CameraInfo::Ptr cinfo(new sensor_msgs::CameraInfo);
+  cinfo->header = header;
+  cinfo->height = depth_est.rows;
+  cinfo->width = depth_est.cols;
+  cinfo->distortion_model = "plumb_bob";
+  cinfo->D = {0.0, 0.0, 0.0, 0.0, 0.0};
+  for (int ii = 0; ii < 3; ++ii) {
+    for (int jj = 0; jj < 3; ++jj) {
+      cinfo->K[ii*3 + jj] = K(ii, jj);
+      cinfo->P[ii*4 + jj] = K(ii, jj);
+      cinfo->R[ii*3 + jj] = 0.0;
+    }
+  }
+  cinfo->P[3] = 0.0;
+  cinfo->P[7] = 0.0;
+  cinfo->P[11] = 0.0;
+  cinfo->R[0] = 1.0;
+  cinfo->R[4] = 1.0;
+  cinfo->R[8] = 1.0;
+
+  cv_bridge::CvImage depth_cvi(header, "32FC1", depth_est);
+
+  pub.publish(depth_cvi.toImageMsg(), cinfo);
+
+  return;
+}
+
 class ROSOutputWrapper : public Output3DWrapper
 {
 public:
@@ -57,7 +97,6 @@ public:
 
             it_ = std::make_shared<image_transport::ImageTransport>(nh);
             depth_pub_ = it_->advertiseCamera("depth_registered/image_rect", 5);
-
         }
 
         virtual ~ROSOutputWrapper()
@@ -112,12 +151,12 @@ public:
           boost::lock_guard<boost::mutex> lock(pose_mtx_);
 
           if (frame->poseValid) {
-            printf("OUT: Current Frame %d (time %f, internal ID %d). CameraToWorld:\n",
-                   frame->incoming_id,
-                   frame->timestamp,
-                   frame->id);
-            printf("pointer: %p\n", (void*)frame);
-            std::cout << frame->camToWorld.matrix3x4() << "\n";
+            // printf("OUT: Current Frame %d (time %f, internal ID %d). CameraToWorld:\n",
+            //        frame->incoming_id,
+            //        frame->timestamp,
+            //        frame->id);
+            // printf("pointer: %p\n", (void*)frame);
+            // std::cout << frame->camToWorld.matrix3x4() << "\n";
 
             geometry_msgs::TransformStamped tf;
 
@@ -135,6 +174,9 @@ public:
             tf.transform.translation.y = pose.translation()(1);
             tf.transform.translation.z = pose.translation()(2);
             tf_pub_.sendTransform(tf);
+
+            // Save calibration.
+            calib_hessian_ = HCalib;
           }
         }
 
@@ -154,26 +196,52 @@ public:
 
         virtual void pushDepthImageFloat(MinimalImageF* image, FrameHessian* KF ) override
         {
-            printf("OUT: Predicted depth for KF %d (id %d, time %f, internal frame-ID %d). CameraToWorld:\n",
-                   KF->frameID,
-                   KF->shell->incoming_id,
-                   KF->shell->timestamp,
-                   KF->shell->id);
-            std::cout << KF->shell->camToWorld.matrix3x4() << "\n";
+            // printf("OUT: Predicted depth for KF %d (id %d, time %f, internal frame-ID %d). CameraToWorld:\n",
+            //        KF->frameID,
+            //        KF->shell->incoming_id,
+            //        KF->shell->timestamp,
+            //        KF->shell->id);
+            // std::cout << KF->shell->camToWorld.matrix3x4() << "\n";
 
-            int maxWrite = 5;
-            for(int y=0;y<image->h;y++)
-            {
-                for(int x=0;x<image->w;x++)
-                {
-                    if(image->at(x,y) <= 0) continue;
+            // int maxWrite = 5;
+            // for(int y=0;y<image->h;y++)
+            // {
+            //     for(int x=0;x<image->w;x++)
+            //     {
+            //         if(image->at(x,y) <= 0) continue;
 
-                    printf("OUT: Example Idepth at pixel (%d,%d): %f.\n", x,y,image->at(x,y));
-                    maxWrite--;
-                    if(maxWrite==0) break;
+            //         printf("OUT: Example Idepth at pixel (%d,%d): %f.\n", x,y,image->at(x,y));
+            //         maxWrite--;
+            //         if(maxWrite==0) break;
+            //     }
+            //     if(maxWrite==0) break;
+            // }
+
+          if (calib_hessian_ == nullptr) {
+            return;
+          }
+
+            cv::Mat1f depthmap(image->h, image->w, std::numeric_limits<float>::quiet_NaN());
+            for (int ii = 0; ii < image->h; ++ii) {
+              for (int jj = 0; jj < image->w; ++jj) {
+                if (image->at(jj, ii) <= 0) {
+                  continue;
                 }
-                if(maxWrite==0) break;
+                depthmap(ii, jj) = 1.0f / image->at(jj, ii);
+              }
             }
+
+            Eigen::Matrix3f K(Eigen::Matrix3f::Zero());
+            K(0, 0) = calib_hessian_->fxl();
+            K(1, 1) = calib_hessian_->fyl();
+            K(0, 2) = calib_hessian_->cxl();
+            K(1, 2) = calib_hessian_->cyl();
+            K(2, 2) = 1.0f;
+
+            publishDepthMap(depth_pub_, "dso_cam", KF->shell->timestamp, K,
+                            depthmap);
+
+            return;
         }
 
  private:
@@ -186,12 +254,10 @@ public:
   std::shared_ptr<image_transport::ImageTransport> it_;
 
   image_transport::CameraPublisher depth_pub_;
+
+  CalibHessian* calib_hessian_ = nullptr;
 };
 
-
-
 }
-
-
 
 }

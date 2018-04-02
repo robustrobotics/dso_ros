@@ -159,7 +159,7 @@ void vidCb(const sensor_msgs::ImageConstPtr img)
 	assert(cv_ptr->image.channels() == 1);
 
 
-	if(setting_fullResetRequested)
+	if(setting_fullResetRequested || fullSystem->isLost)
 	{
 		std::vector<IOWrap::Output3DWrapper*> wraps = fullSystem->outputWrapper;
 		delete fullSystem;

@@ -3,15 +3,22 @@
   <arg name="mode" default="1" />
   <arg name="image" default="image" />
 
+  <arg name="namespace" default="dso" />
   <arg name="output" default="screen" />
+
 
   <node pkg="tf2_ros" type="static_transform_publisher" name="dso_world_to_world"
         args="0.0 0.0 0.0 0.5 -0.5 0.5 -0.5 world dso_world" >
   </node>
+
+  <group ns="$(arg namespace)" >
 
   <node pkg="dso_ros" type="dso_live" name="dso_live"
         args="calib=$(arg calib) mode=$(arg mode)"
         output="$(arg output)">
     <remap from="image" to="$(arg image)" />
   </node>
+
+  </group>
+
 </launch>

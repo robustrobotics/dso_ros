@@ -146,38 +146,28 @@ public:
             }
         }
 
-        virtual void publishCamPose(FrameShell* frame, CalibHessian* HCalib) override
-        {
+        void publishCamPose(const uint32_t id, const double time,
+                            const SE3& pose, CalibHessian* HCalib) override {
           boost::lock_guard<boost::mutex> lock(pose_mtx_);
 
-          if (frame->poseValid) {
-            // printf("OUT: Current Frame %d (time %f, internal ID %d). CameraToWorld:\n",
-            //        frame->incoming_id,
-            //        frame->timestamp,
-            //        frame->id);
-            // printf("pointer: %p\n", (void*)frame);
-            // std::cout << frame->camToWorld.matrix3x4() << "\n";
+          geometry_msgs::TransformStamped tf;
 
-            geometry_msgs::TransformStamped tf;
+          tf.header.stamp.fromSec(time);
+          tf.header.frame_id = "dso_world";
+          tf.child_frame_id = "dso_cam";
+          tf.transform.rotation.w = pose.unit_quaternion().w();
+          tf.transform.rotation.x = pose.unit_quaternion().x();
+          tf.transform.rotation.y = pose.unit_quaternion().y();
+          tf.transform.rotation.z = pose.unit_quaternion().z();
+          tf.transform.translation.x = pose.translation()(0);
+          tf.transform.translation.y = pose.translation()(1);
+          tf.transform.translation.z = pose.translation()(2);
+          tf_pub_.sendTransform(tf);
 
-            Sophus::SE3d pose = frame->camToWorld;
-            // pose.normalize();
+          // Save calibration.
+          calib_hessian_ = HCalib;
 
-            tf.header.stamp.fromSec(frame->timestamp);
-            tf.header.frame_id = "dso_world";
-            tf.child_frame_id = "dso_cam";
-            tf.transform.rotation.w = pose.unit_quaternion().w();
-            tf.transform.rotation.x = pose.unit_quaternion().x();
-            tf.transform.rotation.y = pose.unit_quaternion().y();
-            tf.transform.rotation.z = pose.unit_quaternion().z();
-            tf.transform.translation.x = pose.translation()(0);
-            tf.transform.translation.y = pose.translation()(1);
-            tf.transform.translation.z = pose.translation()(2);
-            tf_pub_.sendTransform(tf);
-
-            // Save calibration.
-            calib_hessian_ = HCalib;
-          }
+          return;
         }
 
         virtual void pushLiveFrame(FrameHessian* image) override

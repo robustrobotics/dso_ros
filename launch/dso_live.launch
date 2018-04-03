@@ -11,6 +11,10 @@
         args="0.0 0.0 0.0 0.5 -0.5 0.5 -0.5 world dso_world" >
   </node>
 
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_world_to_world"
+        args="0.0 0.0 0.0 0.5 -0.5 0.5 -0.5 world camera_world" >
+  </node>
+
   <group ns="$(arg namespace)" >
 
   <node pkg="dso_ros" type="dso_live" name="dso_live"

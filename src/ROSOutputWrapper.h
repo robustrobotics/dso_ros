@@ -26,9 +26,11 @@
 
 #include <string>
 #include <limits>
+#include <deque>
 
 #include <image_transport/image_transport.h>
 #include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
 #include <cv_bridge/cv_bridge.h>
 
 #include "boost/thread.hpp"
@@ -95,8 +97,10 @@ public:
         {
             printf("OUT: Created ROSOutputWrapper\n");
 
+            tf_listener_ = std::make_shared<tf2_ros::TransformListener>(tf_buffer_);
             it_ = std::make_shared<image_transport::ImageTransport>(nh);
             depth_pub_ = it_->advertiseCamera("depth_registered/image_rect", 5);
+            metric_depth_pub_ = it_->advertiseCamera("metric/depth_registered/image_rect", 5);
         }
 
         virtual ~ROSOutputWrapper()
@@ -153,8 +157,8 @@ public:
           geometry_msgs::TransformStamped tf;
 
           tf.header.stamp.fromSec(time);
-          tf.header.frame_id = "dso_world";
-          tf.child_frame_id = "dso_cam";
+          tf.header.frame_id = dso_world_frame_;
+          tf.child_frame_id = dso_cam_frame_;
           tf.transform.rotation.w = pose.unit_quaternion().w();
           tf.transform.rotation.x = pose.unit_quaternion().x();
           tf.transform.rotation.y = pose.unit_quaternion().y();
@@ -166,6 +170,45 @@ public:
 
           // Save calibration.
           calib_hessian_ = HCalib;
+
+          // Get corresponding metric camera pose.
+          geometry_msgs::TransformStamped metric_tf;
+          try {
+            metric_tf = tf_buffer_.lookupTransform(metric_world_frame_,
+                                                   metric_cam_frame_,
+                                                   tf.header.stamp,
+                                                   ros::Duration(1.0/15));
+          } catch (tf2::TransformException &ex) {
+            ROS_ERROR("%s", ex.what());
+            return;
+          }
+
+          Sophus::SE3d metric_pose(
+              Eigen::Quaterniond(metric_tf.transform.rotation.w,
+                                 metric_tf.transform.rotation.x,
+                                 metric_tf.transform.rotation.y,
+                                 metric_tf.transform.rotation.z),
+              Eigen::Vector3d(metric_tf.transform.translation.x,
+                              metric_tf.transform.translation.y,
+                              metric_tf.transform.translation.z));
+
+          // Add to history (make sure after takeoff).
+          float metric_trans = std::numeric_limits<float>::max();
+          if (metric_pose_history_.size() > 0) {
+            metric_trans = (metric_pose_history_.back().translation() -
+                            metric_pose.translation()).norm();
+          }
+
+          if ((-metric_pose.translation()(1) > metric_takeoff_thresh_) &&
+              (metric_trans > min_metric_trans_)) {
+            pose_history_.push_back(pose);
+            metric_pose_history_.push_back(metric_pose);
+
+            while (pose_history_.size() > max_pose_history_) {
+              pose_history_.pop_front();
+              metric_pose_history_.pop_front();
+            }
+          }
 
           return;
         }
@@ -186,6 +229,8 @@ public:
 
         virtual void pushDepthImageFloat(MinimalImageF* image, FrameHessian* KF ) override
         {
+          boost::lock_guard<boost::mutex> lock(pose_mtx_);
+
             // printf("OUT: Predicted depth for KF %d (id %d, time %f, internal frame-ID %d). CameraToWorld:\n",
             //        KF->frameID,
             //        KF->shell->incoming_id,
@@ -228,22 +273,115 @@ public:
             K(1, 2) = calib_hessian_->cyl();
             K(2, 2) = 1.0f;
 
-            publishDepthMap(depth_pub_, "dso_cam", KF->shell->timestamp, K,
+            publishDepthMap(depth_pub_, dso_cam_frame_, KF->shell->timestamp, K,
                             depthmap);
+
+            if (publish_metric_depthmap_) {
+              cv::Mat1f metric_depthmap(depthmap.clone());
+              float scale = getScale();
+
+              if (std::isnan(scale)) {
+                return;
+              }
+
+              for (int ii = 0; ii < metric_depthmap.rows; ++ii) {
+                for (int jj = 0; jj < metric_depthmap.cols; ++jj) {
+                  metric_depthmap(ii, jj) *= scale;
+                }
+              }
+
+              publishDepthMap(metric_depth_pub_, metric_cam_frame_,
+                              KF->shell->timestamp, K, metric_depthmap);
+            }
 
             return;
         }
+
+  float getScale() {
+    float scale = std::numeric_limits<float>::quiet_NaN();
+
+    ROS_ASSERT(pose_history_.size() == metric_pose_history_.size());
+
+    int num_poses = pose_history_.size();
+
+    if (num_poses < 10) {
+      return scale;
+    }
+
+    // Solve least squares to estimate scale.
+    Eigen::VectorXf trans(num_poses * 3);
+    Eigen::VectorXf metric_trans(num_poses * 3);
+
+    // Weird alignment issues with Eigen::Quaternion going on, hence the
+    // roundabout way of computing the poses relative to the first pose in the
+    // history.
+    Eigen::Quaternion<double, Eigen::DontAlign> quat0(pose_history_.front().unit_quaternion());
+    Eigen::Vector3d trans0(pose_history_.front().translation());
+    Eigen::Quaterniond quat0inv(quat0.inverse());
+    Eigen::Vector3d trans0inv(-(quat0inv * trans0));
+
+    Eigen::Quaternion<double, Eigen::DontAlign>
+        metric_quat0(metric_pose_history_.front().unit_quaternion());
+    Eigen::Vector3d metric_trans0(metric_pose_history_.front().translation());
+    Eigen::Quaterniond metric_quat0inv(metric_quat0.inverse());
+    Eigen::Vector3d metric_trans0inv(-(metric_quat0inv * metric_trans0));
+    for (int ii = 0; ii < num_poses; ++ii) {
+      Eigen::Vector3d rel_trans(quat0inv * pose_history_[ii].translation() + trans0inv);
+      trans(3 * ii + 0) = rel_trans(0);
+      trans(3 * ii + 1) = rel_trans(1);
+      trans(3 * ii + 2) = rel_trans(2);
+
+      Eigen::Vector3d metric_rel_trans(
+          metric_quat0inv * metric_pose_history_[ii].translation() + metric_trans0inv);
+      metric_trans(3 * ii + 0) = metric_rel_trans(0);
+      metric_trans(3 * ii + 1) = metric_rel_trans(1);
+      metric_trans(3 * ii + 2) = metric_rel_trans(2);
+    }
+
+    scale = metric_trans.dot(trans) / trans.dot(trans);
+
+    if (scale <= 0.0f) {
+      scale = std::numeric_limits<float>::quiet_NaN();
+    }
+
+    Eigen::Vector3d rel_trans(quat0inv * pose_history_.back().translation() + trans0inv);
+    Eigen::Vector3d metric_rel_trans(
+        metric_quat0inv * metric_pose_history_.back().translation() + metric_trans0inv);
+    ROS_ERROR("dso_trans_delta: %f, %f, %f, metric_trans_delta: %f, %f, %f",
+              rel_trans(0), rel_trans(1), rel_trans(2),
+              metric_rel_trans(0), metric_rel_trans(1), metric_rel_trans(2));
+    ROS_ERROR("SCALE(%i): %f", num_poses, scale);
+
+    return scale;
+  }
 
  private:
   boost::mutex pose_mtx_;
 
   ros::NodeHandle nh_;
 
+  std::string dso_cam_frame_{"dso_cam"};
+  std::string dso_world_frame_{"dso_world"};
+
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
+  tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformBroadcaster tf_pub_;
 
   std::shared_ptr<image_transport::ImageTransport> it_;
 
   image_transport::CameraPublisher depth_pub_;
+
+  // Scale estimation stuff.
+  bool publish_metric_depthmap_ = true;
+  image_transport::CameraPublisher metric_depth_pub_;
+
+  float min_metric_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.
+  uint32_t max_pose_history_ = 200;
+  std::string metric_cam_frame_{"camera"};
+  std::string metric_world_frame_{"camera_world"};
+  std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > pose_history_;
+  std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > metric_pose_history_;
+  float metric_takeoff_thresh_ = 1.5f;
 
   CalibHessian* calib_hessian_ = nullptr;
 };

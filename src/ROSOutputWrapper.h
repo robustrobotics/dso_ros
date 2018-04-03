@@ -202,7 +202,7 @@ public:
           }
 
           if ((-metric_pose.translation()(1) > metric_takeoff_thresh_) &&
-              (metric_trans > min_metric_trans_)) {
+              (metric_trans > min_metric_inc_trans_)) {
             pose_history_.push_back(pose);
             metric_pose_history_.push_back(metric_pose);
 
@@ -310,8 +310,16 @@ public:
 
     int num_poses = pose_history_.size();
 
-    if (num_poses < 10) {
-      return scale;
+    float total_metric_trans = 0.0f;
+    if (num_poses > 1) {
+      total_metric_trans = (metric_pose_history_.back().translation() -
+                            metric_pose_history_.front().translation()).norm();
+    }
+
+    if (total_metric_trans < min_metric_trans_) {
+      ROS_ERROR("Not enough metric translation! (%f < %f)",
+                total_metric_trans, min_metric_trans_);
+      return std::numeric_limits<float>::quiet_NaN();
     }
 
     // Solve least squares to estimate scale.
@@ -350,12 +358,6 @@ public:
       scale = std::numeric_limits<float>::quiet_NaN();
     }
 
-    Eigen::Vector3d rel_trans(quat0inv * pose_history_.back().translation() + trans0inv);
-    Eigen::Vector3d metric_rel_trans(
-        metric_quat0inv * metric_pose_history_.back().translation() + metric_trans0inv);
-    ROS_ERROR("dso_trans_delta: %f, %f, %f, metric_trans_delta: %f, %f, %f",
-              rel_trans(0), rel_trans(1), rel_trans(2),
-              metric_rel_trans(0), metric_rel_trans(1), metric_rel_trans(2));
     ROS_ERROR("SCALE(%i): %f", num_poses, scale);
 
     return scale;
@@ -382,7 +384,8 @@ public:
   image_transport::CameraPublisher metric_depth_pub_;
   ros::Publisher scale_pub_;
 
-  float min_metric_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.
+  float min_metric_inc_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.
+  float min_metric_trans_ = 2.0f;  // Camera must have move this much in metric space to contribute to scale.
   uint32_t max_pose_history_ = 200;
   std::string metric_cam_frame_{"camera"};
   std::string metric_world_frame_{"camera_world"};

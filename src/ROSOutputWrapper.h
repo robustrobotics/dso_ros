@@ -355,6 +355,7 @@ public:
     scale = metric_trans.dot(trans) / trans.dot(trans);
 
     if (scale <= 0.0f) {
+      ROS_ERROR("Negative scale estimated! %f", scale);
       scale = std::numeric_limits<float>::quiet_NaN();
     }
 
@@ -386,7 +387,7 @@ public:
 
   float min_metric_inc_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.
   float min_metric_trans_ = 2.0f;  // Camera must have move this much in metric space to contribute to scale.
-  uint32_t max_pose_history_ = 200;
+  uint32_t max_pose_history_ = 50;
   std::string metric_cam_frame_{"camera"};
   std::string metric_world_frame_{"camera_world"};
   std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > pose_history_;

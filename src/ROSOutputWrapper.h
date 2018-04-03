@@ -28,6 +28,7 @@
 #include <limits>
 #include <deque>
 
+#include <std_msgs/Float32.h>
 #include <image_transport/image_transport.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
@@ -101,6 +102,7 @@ public:
             it_ = std::make_shared<image_transport::ImageTransport>(nh);
             depth_pub_ = it_->advertiseCamera("depth_registered/image_rect", 5);
             metric_depth_pub_ = it_->advertiseCamera("metric/depth_registered/image_rect", 5);
+            scale_pub_ = nh_.advertise<std_msgs::Float32>("metric/scale", 5);
         }
 
         virtual ~ROSOutputWrapper()
@@ -292,6 +294,10 @@ public:
 
               publishDepthMap(metric_depth_pub_, metric_cam_frame_,
                               KF->shell->timestamp, K, metric_depthmap);
+
+              std_msgs::Float32::Ptr float_msg(new std_msgs::Float32());
+              float_msg->data = scale;
+              scale_pub_.publish(float_msg);
             }
 
             return;
@@ -374,6 +380,7 @@ public:
   // Scale estimation stuff.
   bool publish_metric_depthmap_ = true;
   image_transport::CameraPublisher metric_depth_pub_;
+  ros::Publisher scale_pub_;
 
   float min_metric_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.
   uint32_t max_pose_history_ = 200;

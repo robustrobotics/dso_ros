@@ -354,12 +354,23 @@ public:
 
     scale = metric_trans.dot(trans) / trans.dot(trans);
 
+    float live_scale = metric_trans.tail<3>().dot(trans.tail<3>()) /
+        trans.tail<3>().dot(trans.tail<3>());
+
+    ROS_ERROR("LIVE_SCALE(%i): %f", num_poses, live_scale);
+    ROS_ERROR("SCALE(%i): %f", num_poses, scale);
+
     if (scale <= 0.0f) {
-      ROS_ERROR("Negative scale estimated! %f", scale);
+      ROS_ERROR("Negative scale estimated (%f)! Resetting history!", scale);
+      pose_history_.clear();
+      metric_pose_history_.clear();
+      scale = std::numeric_limits<float>::quiet_NaN();
+    } else if (std::fabs(live_scale - scale) / scale > scale_divergence_factor_) {
+      ROS_ERROR("Scale divergence! Resetting history!");
+      pose_history_.clear();
+      metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
     }
-
-    ROS_ERROR("SCALE(%i): %f", num_poses, scale);
 
     return scale;
   }
@@ -387,6 +398,7 @@ public:
 
   float min_metric_inc_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.
   float min_metric_trans_ = 2.0f;  // Camera must have move this much in metric space to contribute to scale.
+  float scale_divergence_factor_ = 0.20f; // If diff between estimated scale and live scale exceeds this, reset window.
   uint32_t max_pose_history_ = 50;
   std::string metric_cam_frame_{"camera"};
   std::string metric_world_frame_{"camera_world"};

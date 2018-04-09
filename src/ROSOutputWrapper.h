@@ -514,7 +514,7 @@ public:
   float min_metric_inc_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.
   float min_metric_trans_ = 2.0f;  // Camera must have move this much in metric space to contribute to scale.
   float scale_divergence_factor_ = 0.20f; // If diff between estimated scale and live scale exceeds this, reset window.
-  uint32_t max_pose_history_ = 50;
+  uint32_t max_pose_history_ = 100;
   std::string metric_cam_frame_{"camera"};
   std::string metric_world_frame_{"camera_world"};
   std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > pose_history_;

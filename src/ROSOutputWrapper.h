@@ -437,6 +437,13 @@ public:
       }
     }
 
+    if (do_morph_close_) {
+      // Apply closing operator to connect fragmented components.
+      cv::Mat struct_el(morph_close_size_, morph_close_size_,
+                        cv::DataType<uint8_t>::type, cv::Scalar(1));
+      cv::morphologyEx(depthmap_pyr.back(), depthmap_pyr.back(), cv::MORPH_CLOSE, struct_el);
+    }
+
     return depthmap_pyr.back();
   }
 
@@ -463,6 +470,10 @@ public:
   bool publish_coarse_metric_depthmap_ = true;
   uint32_t coarse_level_ = 3;
   image_transport::CameraPublisher coarse_metric_depth_pub_;
+
+  bool do_morph_close_ = false;
+  int morph_close_size_ = 5;
+
   ros::Publisher scale_pub_;
 
   float min_metric_inc_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.

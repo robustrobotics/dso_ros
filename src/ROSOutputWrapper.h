@@ -27,6 +27,7 @@
 #include <string>
 #include <limits>
 #include <deque>
+#include <vector>
 
 #include <std_msgs/Float32.h>
 #include <image_transport/image_transport.h>
@@ -102,6 +103,7 @@ public:
             it_ = std::make_shared<image_transport::ImageTransport>(nh);
             depth_pub_ = it_->advertiseCamera("depth_registered/image_rect", 5);
             metric_depth_pub_ = it_->advertiseCamera("metric/depth_registered/image_rect", 5);
+            coarse_metric_depth_pub_ = it_->advertiseCamera("metric/coarse/depth_registered/image_rect", 5);
             scale_pub_ = nh_.advertise<std_msgs::Float32>("metric/scale", 5);
         }
 
@@ -295,6 +297,18 @@ public:
               publishDepthMap(metric_depth_pub_, metric_cam_frame_,
                               KF->shell->timestamp, K, metric_depthmap);
 
+              if (publish_coarse_metric_depthmap_) {
+                // Create coarse depthmap.
+                cv::Mat1f coarse_metric_depthmap =
+                    getCoarseDepthmap(metric_depthmap, coarse_level_);
+                Eigen::Matrix3f Klvl(K);
+                Klvl /= (1 << coarse_level_);
+                Klvl(2, 2) = 1.0f;
+                publishDepthMap(coarse_metric_depth_pub_, metric_cam_frame_,
+                                KF->shell->timestamp, Klvl,
+                                coarse_metric_depthmap);
+              }
+
               std_msgs::Float32::Ptr float_msg(new std_msgs::Float32());
               float_msg->data = scale;
               scale_pub_.publish(float_msg);
@@ -375,6 +389,57 @@ public:
     return scale;
   }
 
+  cv::Mat1f getCoarseDepthmap(const cv::Mat1f& depthmap,
+                              const int level) {
+    std::vector<cv::Mat1f> depthmap_pyr(level + 1);
+    depthmap_pyr[0] = depthmap.clone();
+
+    for (int lvl = 1; lvl <= level; ++lvl) {
+      int hlvl = depthmap_pyr[lvl - 1].rows >> 1;
+      int wlvl = depthmap_pyr[lvl - 1].cols >> 1;
+      depthmap_pyr[lvl] = cv::Mat1f(hlvl, wlvl, std::numeric_limits<float>::quiet_NaN());
+      for (int ii = 0; ii < hlvl; ++ii) {
+        for (int jj = 0; jj < wlvl; ++jj) {
+          int ii_prev = ii << 1;
+          int jj_prev = jj << 1;
+
+          float depth_sum = 0.0f;
+          int depth_count = 0;
+
+          float depth = depthmap_pyr[lvl - 1](ii_prev, jj_prev);
+          if (!std::isnan(depth)) {
+            depth_sum += depth;
+            depth_count++;
+          }
+
+          depth = depthmap_pyr[lvl - 1](ii_prev, jj_prev + 1);
+          if (!std::isnan(depth)) {
+            depth_sum += depth;
+            depth_count++;
+          }
+
+          depth = depthmap_pyr[lvl - 1](ii_prev + 1, jj_prev);
+          if (!std::isnan(depth)) {
+            depth_sum += depth;
+            depth_count++;
+          }
+
+          depth = depthmap_pyr[lvl - 1](ii_prev + 1, jj_prev + 1);
+          if (!std::isnan(depth)) {
+            depth_sum += depth;
+            depth_count++;
+          }
+
+          if (depth_count > 0) {
+            depthmap_pyr[lvl](ii, jj) = depth_sum / depth_count;
+          }
+        }
+      }
+    }
+
+    return depthmap_pyr.back();
+  }
+
  private:
   boost::mutex pose_mtx_;
 
@@ -394,6 +459,10 @@ public:
   // Scale estimation stuff.
   bool publish_metric_depthmap_ = true;
   image_transport::CameraPublisher metric_depth_pub_;
+
+  bool publish_coarse_metric_depthmap_ = true;
+  uint32_t coarse_level_ = 3;
+  image_transport::CameraPublisher coarse_metric_depth_pub_;
   ros::Publisher scale_pub_;
 
   float min_metric_inc_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.

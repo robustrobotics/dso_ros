@@ -2,6 +2,7 @@
   <arg name="calib" />
   <arg name="mode" default="1" />
   <arg name="image" default="image" />
+  <arg name="quiet" default="1" />
 
   <arg name="namespace" default="dso" />
   <arg name="output" default="screen" />
@@ -18,7 +19,7 @@
   <group ns="$(arg namespace)" >
 
   <node pkg="dso_ros" type="dso_live" name="dso_live"
-        args="calib=$(arg calib) mode=$(arg mode)"
+        args="calib=$(arg calib) mode=$(arg mode) quiet=$(arg quiet)"
         output="$(arg output)">
     <remap from="image" to="$(arg image)" />
   </node>

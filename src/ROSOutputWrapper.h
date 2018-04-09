@@ -437,14 +437,45 @@ public:
       }
     }
 
+    cv::Mat1f coarse_depthmap = depthmap_pyr.back();
+    if (fill_holes_) {
+      cv::Mat1f filled_depthmap(coarse_depthmap.clone());
+      for (int ii = fill_radius_; ii < coarse_depthmap.rows - fill_radius_; ++ii) {
+        for (int jj = fill_radius_; jj < coarse_depthmap.cols - fill_radius_; ++jj) {
+          float depth_center = coarse_depthmap(ii, jj);
+          if (!std::isnan(depth_center)) {
+            continue;
+          }
+
+          float depth_sum = 0.0f;
+          int depth_count = 0;
+          for (int wii = -fill_radius_; wii <= fill_radius_; ++wii) {
+            for (int wjj = -fill_radius_; wjj <= fill_radius_; ++wjj) {
+              float depth = coarse_depthmap(ii + wii, jj + wjj);
+              if (!std::isnan(depth)) {
+                depth_sum += depth;
+                depth_count++;
+              }
+            }
+          }
+
+          if (depth_count > min_depths_to_fill) {
+            filled_depthmap(ii, jj) = depth_sum / depth_count;
+          }
+        }
+      }
+
+      coarse_depthmap = filled_depthmap;
+    }
+
     if (do_morph_close_) {
       // Apply closing operator to connect fragmented components.
       cv::Mat struct_el(morph_close_size_, morph_close_size_,
                         cv::DataType<uint8_t>::type, cv::Scalar(1));
-      cv::morphologyEx(depthmap_pyr.back(), depthmap_pyr.back(), cv::MORPH_CLOSE, struct_el);
+      cv::morphologyEx(coarse_depthmap, coarse_depthmap, cv::MORPH_CLOSE, struct_el);
     }
 
-    return depthmap_pyr.back();
+    return coarse_depthmap;
   }
 
  private:
@@ -470,6 +501,10 @@ public:
   bool publish_coarse_metric_depthmap_ = true;
   uint32_t coarse_level_ = 3;
   image_transport::CameraPublisher coarse_metric_depth_pub_;
+
+  bool fill_holes_ = true;
+  int fill_radius_ = 3;
+  int min_depths_to_fill = 3; // Need this many depths in window to fill.
 
   bool do_morph_close_ = false;
   int morph_close_size_ = 5;

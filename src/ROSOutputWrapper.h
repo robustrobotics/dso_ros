@@ -30,6 +30,8 @@
 #include <vector>
 
 #include <std_msgs/Float32.h>
+#include <nav_msgs/Path.h>
+
 #include <image_transport/image_transport.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <tf2_ros/transform_listener.h>
@@ -105,6 +107,8 @@ public:
             metric_depth_pub_ = it_->advertiseCamera("metric/depth_registered/image_rect", 5);
             coarse_metric_depth_pub_ = it_->advertiseCamera("metric/coarse/depth_registered/image_rect", 5);
             scale_pub_ = nh_.advertise<std_msgs::Float32>("metric/scale", 5);
+            scaled_pose_history_pub_ = nh_.advertise<nav_msgs::Path>("metric/scaled_pose_history", 5);
+            metric_pose_history_pub_ = nh_.advertise<nav_msgs::Path>("metric/pose_history", 5);
         }
 
         virtual ~ROSOutputWrapper()
@@ -309,9 +313,53 @@ public:
                                 coarse_metric_depthmap);
               }
 
+              // Publish scale.
               std_msgs::Float32::Ptr float_msg(new std_msgs::Float32());
               float_msg->data = scale;
               scale_pub_.publish(float_msg);
+
+              // Publish pose history.
+              nav_msgs::Path::Ptr metric_pose_history_msg(new nav_msgs::Path());
+              metric_pose_history_msg->header.stamp.fromSec(KF->shell->timestamp);
+              metric_pose_history_msg->header.frame_id = metric_world_frame_;
+              metric_pose_history_msg->poses.resize(metric_pose_history_.size());
+              for (int ii = 0; ii < metric_pose_history_.size(); ++ii) {
+                metric_pose_history_msg->poses[ii].pose.position.x =
+                    metric_pose_history_[ii].translation()(0);
+                metric_pose_history_msg->poses[ii].pose.position.y =
+                    metric_pose_history_[ii].translation()(1);
+                metric_pose_history_msg->poses[ii].pose.position.z =
+                    metric_pose_history_[ii].translation()(2);
+
+                // metric_pose_history_msg->poses[ii].pose.orientation.w =
+                //     metric_pose_history_[ii].unit_quaternion().w();
+                // metric_pose_history_msg->poses[ii].pose.orientation.x =
+                //     metric_pose_history_[ii].unit_quaternion().x();
+                // metric_pose_history_msg->poses[ii].pose.orientation.y =
+                //     metric_pose_history_[ii].unit_quaternion().y();
+                // metric_pose_history_msg->poses[ii].pose.orientation.z =
+                //     metric_pose_history_[ii].unit_quaternion().z();
+              }
+              metric_pose_history_pub_.publish(metric_pose_history_msg);
+
+              nav_msgs::Path::Ptr scaled_pose_history_msg(new nav_msgs::Path());
+              scaled_pose_history_msg->header.stamp.fromSec(KF->shell->timestamp);
+              scaled_pose_history_msg->header.frame_id = metric_world_frame_;
+              scaled_pose_history_msg->poses.resize(pose_history_.size());
+              for (int ii = 0; ii < pose_history_.size(); ++ii) {
+                // Convert to metric frame.
+                Sophus::SE3d rel_pose(pose_history_.front().inverse() * pose_history_[ii]);
+                rel_pose.translation() *= scale;
+                Sophus::SE3d scaled_pose(metric_pose_history_.front() * rel_pose);
+
+                scaled_pose_history_msg->poses[ii].pose.position.x =
+                    scaled_pose.translation()(0);
+                scaled_pose_history_msg->poses[ii].pose.position.y =
+                    scaled_pose.translation()(1);
+                scaled_pose_history_msg->poses[ii].pose.position.z =
+                    scaled_pose.translation()(2);
+              }
+              scaled_pose_history_pub_.publish(scaled_pose_history_msg);
             }
 
             return;
@@ -510,6 +558,11 @@ public:
   int morph_close_size_ = 5;
 
   ros::Publisher scale_pub_;
+  ros::Publisher scaled_pose_history_pub_;
+  ros::Publisher metric_pose_history_pub_;
+
+  std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > pose_history_;
+  std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > metric_pose_history_;
 
   float min_metric_inc_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.
   float min_metric_trans_ = 2.0f;  // Camera must have move this much in metric space to contribute to scale.
@@ -517,8 +570,6 @@ public:
   uint32_t max_pose_history_ = 200;
   std::string metric_cam_frame_{"camera"};
   std::string metric_world_frame_{"camera_world"};
-  std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > pose_history_;
-  std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > metric_pose_history_;
   float metric_takeoff_thresh_ = 1.5f;
 
   CalibHessian* calib_hessian_ = nullptr;

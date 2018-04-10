@@ -31,7 +31,10 @@ catkin_package(
     geometry_msgs
     roscpp
     sensor_msgs
+    nav_msgs
     cv_bridge
+    tf2_ros
+    image_transport
 )
 
 ###########

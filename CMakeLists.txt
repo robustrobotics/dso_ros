@@ -22,7 +22,11 @@ find_package(OpenCV REQUIRED)
 message("\n\n---- FOUND OpenCV Headers at\n\"${OpenCV_INCLUDE_DIRS}\"")
 message("---- FOUND OpenCV Libs at\n\"${OpenCV_LIBS}\"")
 
-find_package(Eigen3 REQUIRED)
+# find_package(Eigen3 REQUIRED)
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(EIGEN3 REQUIRED eigen3>=3.2)
+
 find_package(Boost COMPONENTS system thread)
 find_library(DSO_LIBRARY dso ${DSO_PATH}/build/lib)
 
@@ -50,7 +54,7 @@ include_directories(
   ${DSO_PATH}/src
   ${DSO_PATH}/thirdparty/Sophus
   ${Pangolin_INCLUDE_DIRS}
-  ${EIGEN3_INCLUDE_DIR}
+  ${EIGEN3_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
 )
 

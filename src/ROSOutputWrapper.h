@@ -264,105 +264,121 @@ public:
             return;
           }
 
-            cv::Mat1f depthmap(image->h, image->w, std::numeric_limits<float>::quiet_NaN());
-            for (int ii = 0; ii < image->h; ++ii) {
-              for (int jj = 0; jj < image->w; ++jj) {
-                if (image->at(jj, ii) <= 0) {
-                  continue;
-                }
-                depthmap(ii, jj) = 1.0f / image->at(jj, ii);
+          cv::Mat1f depthmap(image->h, image->w, std::numeric_limits<float>::quiet_NaN());
+          for (int ii = 0; ii < image->h; ++ii) {
+            for (int jj = 0; jj < image->w; ++jj) {
+              if (image->at(jj, ii) <= 0) {
+                continue;
+              }
+              depthmap(ii, jj) = 1.0f / image->at(jj, ii);
+            }
+          }
+
+          Eigen::Matrix3f K(Eigen::Matrix3f::Zero());
+          K(0, 0) = calib_hessian_->fxl();
+          K(1, 1) = calib_hessian_->fyl();
+          K(0, 2) = calib_hessian_->cxl();
+          K(1, 2) = calib_hessian_->cyl();
+          K(2, 2) = 1.0f;
+
+          publishDepthMap(depth_pub_, dso_cam_frame_, KF->shell->timestamp, K,
+                          depthmap);
+
+          if (publish_metric_depthmap_) {
+            cv::Mat1f metric_depthmap(depthmap.clone());
+            float scale = getScale();
+
+            if (std::isnan(scale)) {
+              return;
+            }
+
+            for (int ii = 0; ii < metric_depthmap.rows; ++ii) {
+              for (int jj = 0; jj < metric_depthmap.cols; ++jj) {
+                metric_depthmap(ii, jj) *= scale;
               }
             }
 
-            Eigen::Matrix3f K(Eigen::Matrix3f::Zero());
-            K(0, 0) = calib_hessian_->fxl();
-            K(1, 1) = calib_hessian_->fyl();
-            K(0, 2) = calib_hessian_->cxl();
-            K(1, 2) = calib_hessian_->cyl();
-            K(2, 2) = 1.0f;
+            publishDepthMap(metric_depth_pub_, metric_cam_frame_,
+                            KF->shell->timestamp, K, metric_depthmap);
 
-            publishDepthMap(depth_pub_, dso_cam_frame_, KF->shell->timestamp, K,
-                            depthmap);
-
-            if (publish_metric_depthmap_) {
-              cv::Mat1f metric_depthmap(depthmap.clone());
-              float scale = getScale();
-
-              if (std::isnan(scale)) {
-                return;
-              }
-
-              for (int ii = 0; ii < metric_depthmap.rows; ++ii) {
-                for (int jj = 0; jj < metric_depthmap.cols; ++jj) {
-                  metric_depthmap(ii, jj) *= scale;
-                }
-              }
-
-              publishDepthMap(metric_depth_pub_, metric_cam_frame_,
-                              KF->shell->timestamp, K, metric_depthmap);
-
-              if (publish_coarse_metric_depthmap_) {
-                // Create coarse depthmap.
-                cv::Mat1f coarse_metric_depthmap =
-                    getCoarseDepthmap(metric_depthmap, coarse_level_);
-                Eigen::Matrix3f Klvl(K);
-                Klvl /= (1 << coarse_level_);
-                Klvl(2, 2) = 1.0f;
-                publishDepthMap(coarse_metric_depth_pub_, metric_cam_frame_,
-                                KF->shell->timestamp, Klvl,
-                                coarse_metric_depthmap);
-              }
-
-              // Publish scale.
-              std_msgs::Float32::Ptr float_msg(new std_msgs::Float32());
-              float_msg->data = scale;
-              scale_pub_.publish(float_msg);
-
-              // Publish pose history.
-              nav_msgs::Path::Ptr metric_pose_history_msg(new nav_msgs::Path());
-              metric_pose_history_msg->header.stamp.fromSec(KF->shell->timestamp);
-              metric_pose_history_msg->header.frame_id = metric_world_frame_;
-              metric_pose_history_msg->poses.resize(metric_pose_history_.size());
-              for (int ii = 0; ii < metric_pose_history_.size(); ++ii) {
-                metric_pose_history_msg->poses[ii].pose.position.x =
-                    metric_pose_history_[ii].translation()(0);
-                metric_pose_history_msg->poses[ii].pose.position.y =
-                    metric_pose_history_[ii].translation()(1);
-                metric_pose_history_msg->poses[ii].pose.position.z =
-                    metric_pose_history_[ii].translation()(2);
-
-                // metric_pose_history_msg->poses[ii].pose.orientation.w =
-                //     metric_pose_history_[ii].unit_quaternion().w();
-                // metric_pose_history_msg->poses[ii].pose.orientation.x =
-                //     metric_pose_history_[ii].unit_quaternion().x();
-                // metric_pose_history_msg->poses[ii].pose.orientation.y =
-                //     metric_pose_history_[ii].unit_quaternion().y();
-                // metric_pose_history_msg->poses[ii].pose.orientation.z =
-                //     metric_pose_history_[ii].unit_quaternion().z();
-              }
-              metric_pose_history_pub_.publish(metric_pose_history_msg);
-
-              nav_msgs::Path::Ptr scaled_pose_history_msg(new nav_msgs::Path());
-              scaled_pose_history_msg->header.stamp.fromSec(KF->shell->timestamp);
-              scaled_pose_history_msg->header.frame_id = metric_world_frame_;
-              scaled_pose_history_msg->poses.resize(pose_history_.size());
-              for (int ii = 0; ii < pose_history_.size(); ++ii) {
-                // Convert to metric frame.
-                Sophus::SE3d rel_pose(pose_history_.front().inverse() * pose_history_[ii]);
-                rel_pose.translation() *= scale;
-                Sophus::SE3d scaled_pose(metric_pose_history_.front() * rel_pose);
-
-                scaled_pose_history_msg->poses[ii].pose.position.x =
-                    scaled_pose.translation()(0);
-                scaled_pose_history_msg->poses[ii].pose.position.y =
-                    scaled_pose.translation()(1);
-                scaled_pose_history_msg->poses[ii].pose.position.z =
-                    scaled_pose.translation()(2);
-              }
-              scaled_pose_history_pub_.publish(scaled_pose_history_msg);
+            if (publish_coarse_metric_depthmap_) {
+              // Create coarse depthmap.
+              cv::Mat1f coarse_metric_depthmap =
+                  getCoarseDepthmap(metric_depthmap, coarse_level_);
+              Eigen::Matrix3f Klvl(K);
+              Klvl /= (1 << coarse_level_);
+              Klvl(2, 2) = 1.0f;
+              publishDepthMap(coarse_metric_depth_pub_, metric_cam_frame_,
+                              KF->shell->timestamp, Klvl,
+                              coarse_metric_depthmap);
             }
 
-            return;
+            // Publish scale.
+            std_msgs::Float32::Ptr float_msg(new std_msgs::Float32());
+            float_msg->data = scale;
+            scale_pub_.publish(float_msg);
+
+            // Publish pose history.
+            nav_msgs::Path::Ptr metric_pose_history_msg(new nav_msgs::Path());
+            metric_pose_history_msg->header.stamp.fromSec(KF->shell->timestamp);
+            metric_pose_history_msg->header.frame_id = metric_world_frame_;
+            metric_pose_history_msg->poses.resize(metric_pose_history_.size());
+            for (int ii = 0; ii < metric_pose_history_.size(); ++ii) {
+              metric_pose_history_msg->poses[ii].pose.position.x =
+                  metric_pose_history_[ii].translation()(0);
+              metric_pose_history_msg->poses[ii].pose.position.y =
+                  metric_pose_history_[ii].translation()(1);
+              metric_pose_history_msg->poses[ii].pose.position.z =
+                  metric_pose_history_[ii].translation()(2);
+
+              metric_pose_history_msg->poses[ii].pose.orientation.w =
+                  metric_pose_history_[ii].unit_quaternion().w();
+              metric_pose_history_msg->poses[ii].pose.orientation.x =
+                  metric_pose_history_[ii].unit_quaternion().x();
+              metric_pose_history_msg->poses[ii].pose.orientation.y =
+                  metric_pose_history_[ii].unit_quaternion().y();
+              metric_pose_history_msg->poses[ii].pose.orientation.z =
+                  metric_pose_history_[ii].unit_quaternion().z();
+            }
+            metric_pose_history_pub_.publish(metric_pose_history_msg);
+
+            nav_msgs::Path::Ptr scaled_pose_history_msg(new nav_msgs::Path());
+            scaled_pose_history_msg->header.stamp.fromSec(KF->shell->timestamp);
+            scaled_pose_history_msg->header.frame_id = metric_world_frame_;
+            scaled_pose_history_msg->poses.resize(pose_history_.size());
+
+            // Weird alignment issues with Eigen::Quaternion going on, hence the
+            // roundabout way of computing the poses relative to the first pose in the
+            // history.
+            Eigen::Quaternion<double, Eigen::DontAlign> quat0(pose_history_.front().unit_quaternion());
+            Eigen::Vector3d trans0(pose_history_.front().translation());
+            Eigen::Quaterniond quat0inv(quat0.inverse());
+            Eigen::Vector3d trans0inv(-(quat0inv * trans0));
+            for (int ii = 0; ii < pose_history_.size(); ++ii) {
+              // Convert to metric frame.
+              Eigen::Quaterniond quat(quat0inv * pose_history_[ii].unit_quaternion());
+              Eigen::Vector3d trans(quat0inv * pose_history_[ii].translation() + trans0inv);
+              trans *= scale;
+
+              Eigen::Quaterniond scaled_quat(
+                  metric_pose_history_.front().unit_quaternion() * quat);
+              Eigen::Vector3d scaled_trans(
+                  metric_pose_history_.front().unit_quaternion() * trans +
+                  metric_pose_history_.front().translation());
+
+              scaled_pose_history_msg->poses[ii].pose.position.x = scaled_trans(0);
+              scaled_pose_history_msg->poses[ii].pose.position.y = scaled_trans(1);
+              scaled_pose_history_msg->poses[ii].pose.position.z = scaled_trans(2);
+
+              scaled_pose_history_msg->poses[ii].pose.orientation.w = scaled_quat.w();
+              scaled_pose_history_msg->poses[ii].pose.orientation.x = scaled_quat.x();
+              scaled_pose_history_msg->poses[ii].pose.orientation.y = scaled_quat.y();
+              scaled_pose_history_msg->poses[ii].pose.orientation.z = scaled_quat.z();
+            }
+            scaled_pose_history_pub_.publish(scaled_pose_history_msg);
+          }
+
+          return;
         }
 
   float getScale() {

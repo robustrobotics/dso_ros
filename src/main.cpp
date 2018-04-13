@@ -187,12 +187,15 @@ void vidCb(const sensor_msgs::ImageConstPtr img)
 
 int main( int argc, char** argv )
 {
+  // Setup ROS.
 	ros::init(argc, argv, "dso_live");
+  ros::NodeHandle nh;
+  ros::NodeHandle pnh("~");
+  ros::Subscriber imgSub = nh.subscribe("image", 1, &vidCb);
 
 
-
+  // Parse command line args.
 	for(int i=1; i<argc;i++) parseArgument(argv[i]);
-
 
 	setting_desiredImmatureDensity = 1000;
 	setting_desiredPointDensity = 1200;
@@ -203,6 +206,14 @@ int main( int argc, char** argv )
 	setting_logStuff = false;
 	setting_kfGlobalWeight = 1.3;
 
+  // Parse ROS params.
+  bool fla_calib = false;
+  nh.getParam("fla_calib", fla_calib);
+
+  if (fla_calib) {
+    ROS_ERROR("FLA CALIB");
+    return;
+  }
 
   undistorter = Undistort::getUndistorterForFile(calib, gammaFile, vignetteFile);
 
@@ -215,9 +226,6 @@ int main( int argc, char** argv )
   fullSystem = new FullSystem();
   fullSystem->linearizeOperation=false;
 
-
-  ros::NodeHandle nh;
-  ros::Subscriber imgSub = nh.subscribe("image", 1, &vidCb);
 
   // if(!disableAllDisplay)
   //   fullSystem->outputWrapper.push_back(new IOWrap::PangolinDSOViewer(

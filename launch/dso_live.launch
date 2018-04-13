@@ -4,6 +4,8 @@
   <arg name="image" default="image" />
   <arg name="quiet" default="1" />
 
+  <arg name="fla_calib" default="false" />
+
   <arg name="namespace" default="dso" />
   <arg name="output" default="screen" />
   <arg name="bag_data" default="true" />
@@ -22,6 +24,7 @@
         args="calib=$(arg calib) mode=$(arg mode) quiet=$(arg quiet)"
         output="$(arg output)">
     <remap from="image" to="$(arg image)" />
+    <param name="fla_calib" value="$(arg fla_calib)" />
   </node>
 
   </group>

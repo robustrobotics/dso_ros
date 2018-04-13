@@ -212,7 +212,7 @@ int main( int argc, char** argv )
 
   if (fla_calib) {
     ROS_ERROR("FLA CALIB");
-    return;
+    return 1;
   }
 
   undistorter = Undistort::getUndistorterForFile(calib, gammaFile, vignetteFile);

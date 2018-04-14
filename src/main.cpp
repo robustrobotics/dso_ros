@@ -36,7 +36,10 @@
 #include "util/Undistort.h"
 #include "IOWrapper/Pangolin/PangolinDSOViewer.h"
 
+#include <boost/filesystem.hpp>
+
 #include <ros/ros.h>
+#include <ros/package.h>
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
@@ -51,6 +54,7 @@ std::string gammaFile = "";
 int mode = 1;
 
 using namespace dso;
+namespace bfs = boost::filesystem;
 
 void parseArgument(char* arg)
 {
@@ -208,11 +212,41 @@ int main( int argc, char** argv )
 
   // Parse ROS params.
   bool fla_calib = false;
-  nh.getParam("fla_calib", fla_calib);
+  pnh.getParam("fla_calib", fla_calib);
 
   if (fla_calib) {
-    ROS_ERROR("FLA CALIB");
-    return 1;
+    // Read FLA calibration params.
+    int width, height;
+    getParamOrFail(nh, "/samros/camera/image_width", &width);
+    getParamOrFail(nh, "/samros/camera/image_height", &height);
+
+    double fx, fy, cx, cy;
+    getParamOrFail(nh, "/samros/camera/intrinsics/fu", &fx);
+    getParamOrFail(nh, "/samros/camera/intrinsics/fv", &fy);
+    getParamOrFail(nh, "/samros/camera/intrinsics/pu", &cx);
+    getParamOrFail(nh, "/samros/camera/intrinsics/pv", &cy);
+
+    double k1, k2, p1, p2, k3;
+    getParamOrFail(nh, "/samros/camera/distortion/k1", &k1);
+    getParamOrFail(nh, "/samros/camera/distortion/k2", &k2);
+    getParamOrFail(nh, "/samros/camera/distortion/p1", &p1);
+    getParamOrFail(nh, "/samros/camera/distortion/p2", &p2);
+    getParamOrFail(nh, "/samros/camera/distortion/k3", &k3);
+
+    // Create temporary DSO calibration file.
+    std::string tmp_file = (bfs::temp_directory_path() / bfs::unique_path()).native() + ".yaml";
+    ROS_INFO("Creating FLA camera calibration file %s", tmp_file.c_str());
+
+    std::ofstream tmp_file_stream;
+    tmp_file_stream.open(tmp_file.c_str());
+    tmp_file_stream << std::setprecision(15);
+    tmp_file_stream << fx << " " << fy << " " << " " << cx << " " << cy << " " <<
+        k1 << " " << k2 << " " << p1 << " " << p2 << std::endl;
+    tmp_file_stream << width << " " << height << std::endl;
+    tmp_file_stream << "crop" << std::endl;
+    tmp_file_stream << width << " " << height << std::endl;
+
+    calib = tmp_file;
   }
 
   undistorter = Undistort::getUndistorterForFile(calib, gammaFile, vignetteFile);

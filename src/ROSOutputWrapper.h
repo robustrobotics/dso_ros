@@ -46,6 +46,20 @@
 #include "FullSystem/HessianBlocks.h"
 #include "util/FrameShell.h"
 
+/**
+ * @brief Find a parameter or fail.
+ *
+ * Copied from fsw/fla_utils/param_utils.h.
+ */
+template <typename T>
+void getParamOrFail(const ros::NodeHandle& nh, const std::string& name, T* val) {
+  if (!nh.getParam(name, *val)) {
+    ROS_ERROR("Failed to find parameter: %s", nh.resolveName(name, true).c_str());
+    exit(1);
+  }
+  return;
+}
+
 namespace dso
 {
 

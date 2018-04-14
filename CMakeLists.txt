@@ -30,8 +30,6 @@ pkg_check_modules(EIGEN3 REQUIRED eigen3>=3.2)
 find_package(Boost COMPONENTS system thread)
 find_library(DSO_LIBRARY dso ${DSO_PATH}/build/lib)
 
-pkg_check_modules(YAML_CPP REQUIRED yaml-cpp>=0.5)
-
 catkin_package(
   CATKIN_DEPENDS
     geometry_msgs
@@ -57,7 +55,6 @@ include_directories(
   ${DSO_PATH}/thirdparty/Sophus
   ${Pangolin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
-  ${YAML_CPP_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
 )
 
@@ -68,5 +65,4 @@ target_link_libraries(dso_live
     ${DSO_LIBRARY}
     ${Pangolin_LIBRARIES}
     ${OpenCV_LIBS}
-    ${YAML_CPP_LIBRARIES}
     ${catkin_LIBRARIES})

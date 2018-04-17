@@ -46,6 +46,8 @@
 #include <geometry_msgs/PoseStamped.h>
 #include "cv_bridge/cv_bridge.h"
 
+#include <fla_msgs/ProcessStatus.h>
+
 #include "./ROSOutputWrapper.h"
 #include "./utils.h"
 
@@ -156,6 +158,7 @@ void parseArgument(char* arg)
 FullSystem* fullSystem = 0;
 Undistort* undistorter = 0;
 int frameID = 0;
+double last_update_sec = 0.0;
 
 void vidCb(const sensor_msgs::ImageConstPtr img)
 {
@@ -184,11 +187,42 @@ void vidCb(const sensor_msgs::ImageConstPtr img)
 	frameID++;
 	delete undistImg;
 
+  last_update_sec = ros::Time::now().toSec();
+
+  return;
 }
 
 
+int node_id;
+double heart_beat_dt;
+double alarm_timeout;
+double fail_timeout;
+bool fla_calib = false;
+ros::Publisher heart_beat_pub;
 
+void heartBeat(const ros::TimerEvent&) {
+  double now = ros::Time::now().toSec();
 
+  fla_msgs::ProcessStatus::Ptr ps(new fla_msgs::ProcessStatus);
+
+  ps->id = node_id;
+  ps->pid = getpid();
+
+  if (now - last_update_sec > alarm_timeout)  {
+    ps->status = fla_msgs::ProcessStatus::ALARM;
+    // ps->arg = Status::ALARM_TIMEOUT; // Time since last update longer than expected.
+  } else if (now - last_update_sec > fail_timeout) {
+    ps->status = fla_msgs::ProcessStatus::FAIL;
+    // ps->arg = Status::FAIL_TIMEOUT; // Time since last update probably error.
+  } else {
+    ps->status = fla_msgs::ProcessStatus::READY;
+    // ps->arg = Status::GOOD; // All good.
+  }
+
+  heart_beat_pub.publish(ps);
+
+  return;
+}
 
 int main( int argc, char** argv )
 {
@@ -212,19 +246,10 @@ int main( int argc, char** argv )
 	setting_kfGlobalWeight = 1.3;
 
   // Parse FLA params.
-  int node_id;
   dso_ros::getParamOrFail(pnh, "fla/node_id", &node_id);
-
-  double heart_beat_dt;
   dso_ros::getParamOrFail(pnh, "fla/heart_beat_dt", &heart_beat_dt);
-
-  double alarm_timeout;
   dso_ros::getParamOrFail(pnh, "fla/alarm_timeout", &alarm_timeout);
-
-  double fail_timeout;
   dso_ros::getParamOrFail(pnh, "fla/fail_timeout", &fail_timeout);
-
-  bool fla_calib = false;
   dso_ros::getParamOrFail(pnh, "fla/use_fla_calib", &fla_calib);
 
   if (fla_calib) {
@@ -261,6 +286,10 @@ int main( int argc, char** argv )
 
     calib = tmp_file;
   }
+
+  ros::Timer heart_beat(nh.createTimer(ros::Duration(heart_beat_dt),
+                                       &heartBeat));
+  heart_beat_pub = nh.advertise<fla_msgs::ProcessStatus>("/globalstatus", 1);
 
   // Parse ROS params.
   IOWrap::ROSOutputWrapper::Params params;

@@ -5,9 +5,11 @@ find_package(catkin REQUIRED COMPONENTS
   geometry_msgs
   roscpp
   sensor_msgs
+  nav_msgs
   cv_bridge
   tf2_ros
   image_transport
+  fla_msgs
 )
 
 set(DSO_PATH $ENV{DSO_PATH})
@@ -39,6 +41,7 @@ catkin_package(
     cv_bridge
     tf2_ros
     image_transport
+    fla_msgs
 )
 
 ###########
@@ -63,6 +66,8 @@ add_executable(dso_live
   src/main.cpp
   src/ROSOutputWrapper.h
   src/utils.h)
+
+add_dependencies(dso_live fla_msgs_generate_messages_cpp)
 
 target_link_libraries(dso_live
     ${DSO_LIBRARY}

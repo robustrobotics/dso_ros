@@ -392,7 +392,7 @@ class ROSOutputWrapper : public Output3DWrapper
     }
 
     if (total_metric_trans < params_.min_metric_trans) {
-      ROS_ERROR("Not enough metric translation! (%f < %f)",
+      ROS_DEBUG("Not enough metric translation! (%f < %f)",
                 total_metric_trans, params_.min_metric_trans);
       return std::numeric_limits<float>::quiet_NaN();
     }
@@ -432,16 +432,16 @@ class ROSOutputWrapper : public Output3DWrapper
     float live_scale = metric_trans.tail<3>().dot(trans.tail<3>()) /
         trans.tail<3>().dot(trans.tail<3>());
 
-    ROS_ERROR("LIVE_SCALE(%i): %f", num_poses, live_scale);
-    ROS_ERROR("SCALE(%i): %f", num_poses, scale);
+    ROS_DEBUG("LIVE_SCALE(%i): %f", num_poses, live_scale);
+    ROS_DEBUG("SCALE(%i): %f", num_poses, scale);
 
     if (scale <= 0.0f) {
-      ROS_ERROR("Negative scale estimated (%f)! Resetting history!", scale);
+      ROS_DEBUG("Negative scale estimated (%f)! Resetting history!", scale);
       pose_history_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
     } else if (std::fabs(live_scale - scale) / scale > params_.scale_divergence_factor) {
-      ROS_ERROR("Scale divergence! Resetting history!");
+      ROS_DEBUG("Scale divergence! Resetting history!");
       pose_history_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();

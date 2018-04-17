@@ -307,6 +307,7 @@ int main( int argc, char** argv )
 
   dso_ros::getParamOrFail(pnh, "regularization/publish_coarse_metric_depthmap", &params.publish_coarse_metric_depthmap);
   dso_ros::getParamOrFail(pnh, "regularization/coarse_level", &params.coarse_level);
+  dso_ros::getParamOrFail(pnh, "regularization/match_source_resolution", &params.match_source_resolution);
   dso_ros::getParamOrFail(pnh, "regularization/fill_holes", &params.fill_holes);
   dso_ros::getParamOrFail(pnh, "regularization/fill_radius", &params.fill_radius);
   dso_ros::getParamOrFail(pnh, "regularization/min_depths_to_fill", &params.min_depths_to_fill);

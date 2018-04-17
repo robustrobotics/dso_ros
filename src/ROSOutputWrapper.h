@@ -84,6 +84,8 @@ class ROSOutputWrapper : public Output3DWrapper
     bool publish_coarse_metric_depthmap = true;
     uint32_t coarse_level = 3;
 
+    bool match_source_resolution = true;
+
     bool fill_holes = true;
     int fill_radius = 3;
     int min_depths_to_fill = 3; // Need this many depths in window to fill.
@@ -305,6 +307,28 @@ class ROSOutputWrapper : public Output3DWrapper
               Eigen::Matrix3f Klvl(K);
               Klvl /= (1 << params_.coarse_level);
               Klvl(2, 2) = 1.0f;
+
+              if (params_.match_source_resolution) {
+                std::vector<cv::Mat1f> upsampled_depthmaps(params_.coarse_level + 1);
+                upsampled_depthmaps.back() = coarse_metric_depthmap.clone();
+                for (int lvl = params_.coarse_level - 1; lvl >= 0; lvl--) {
+                  int wlvl = depthmap.cols >> lvl;
+                  int hlvl = depthmap.rows >> lvl;
+                  upsampled_depthmaps[lvl] =
+                      cv::Mat1f(hlvl, wlvl, std::numeric_limits<float>::quiet_NaN());
+                  for (int ii = 0; ii < hlvl; ++ii) {
+                    for (int jj = 0; jj < wlvl; ++jj) {
+                      float depth = upsampled_depthmaps[lvl + 1](ii << 1, jj << 1);
+                      if (!std::isnan(depth) && (depth > 0.0f)) {
+                        upsampled_depthmaps[lvl](ii, jj) = depth;
+                      }
+                    }
+                  }
+                }
+                coarse_metric_depthmap = upsampled_depthmaps[0];
+                Klvl = K;
+              }
+
               dso_ros::publishDepthMap(coarse_metric_depth_pub_, params_.metric_cam_frame,
                                        KF->shell->timestamp, Klvl,
                                        coarse_metric_depthmap);
@@ -392,7 +416,7 @@ class ROSOutputWrapper : public Output3DWrapper
     }
 
     if (total_metric_trans < params_.min_metric_trans) {
-      ROS_DEBUG("Not enough metric translation! (%f < %f)",
+      ROS_ERROR("Not enough metric translation! (%f < %f)",
                 total_metric_trans, params_.min_metric_trans);
       return std::numeric_limits<float>::quiet_NaN();
     }
@@ -432,16 +456,16 @@ class ROSOutputWrapper : public Output3DWrapper
     float live_scale = metric_trans.tail<3>().dot(trans.tail<3>()) /
         trans.tail<3>().dot(trans.tail<3>());
 
-    ROS_DEBUG("LIVE_SCALE(%i): %f", num_poses, live_scale);
-    ROS_DEBUG("SCALE(%i): %f", num_poses, scale);
+    ROS_ERROR("LIVE_SCALE(%i): %f", num_poses, live_scale);
+    ROS_ERROR("SCALE(%i): %f", num_poses, scale);
 
     if (scale <= 0.0f) {
-      ROS_DEBUG("Negative scale estimated (%f)! Resetting history!", scale);
+      ROS_ERROR("Negative scale estimated (%f)! Resetting history!", scale);
       pose_history_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
     } else if (std::fabs(live_scale - scale) / scale > params_.scale_divergence_factor) {
-      ROS_DEBUG("Scale divergence! Resetting history!");
+      ROS_ERROR("Scale divergence! Resetting history!");
       pose_history_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();

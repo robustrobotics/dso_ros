@@ -14,7 +14,7 @@ frames:
 scale:
   publish_metric_depthmap: true
   min_metric_inc_trans: 0.25 # Camera must move this much in metric space to contribute to scale.
-  min_metric_trans: 1.25 # Camera must have move this much in metric space to estimate scale.
+  min_metric_trans: 1.0 # Camera must have move this much in metric space to estimate scale.
   scale_divergence_factor: 0.1 # If rel diff between estimated scale and live scale exceeds this, reset window.
   max_pose_history: 200 # Number of poses in window for scale estimation.
   metric_takeoff_thresh: 0.0 # Ignore poses below this altitude.
@@ -22,6 +22,7 @@ scale:
 regularization:
   publish_coarse_metric_depthmap: true
   coarse_level: 3 # Coarse pyramid level.
+  match_source_resolution: true # Upsample to match source resolution.
   fill_holes: true
   fill_radius: 3
   min_depths_to_fill: 3 # Need this many depths in window to fill.

@@ -1,0 +1,29 @@
+fla:
+  node_id: 16 # Node id.
+  heart_beat_dt: 0.1 # Rate of heart_beat.
+  alarm_timeout: 0.5 # Alarm/fail timeout lengths.
+  fail_timeout: 2.0
+  use_fla_calib: true # Use samros calibration yaml file.
+
+frames:
+  dso_cam_frame: "dso_cam"
+  dso_world_frame: "dso_world"
+  metric_cam_frame: "camera"
+  metric_world_frame: "camera_world"
+
+scale:
+  publish_metric_depthmap: true
+  min_metric_inc_trans: 0.25 # Camera must move this much in metric space to contribute to scale.
+  min_metric_trans: 2.0 # Camera must have move this much in metric space to estimate scale.
+  scale_divergence_factor: 0.1 # If rel diff between estimated scale and live scale exceeds this, reset window.
+  max_pose_history: 200 # Number of poses in window for scale estimation.
+  metric_takeoff_thresh: 1.5 # Ignore poses below this altitude.
+
+regularization:
+  publish_coarse_metric_depthmap: true
+  coarse_level: 3 # Coarse pyramid level.
+  fill_holes: true
+  fill_radius: 3
+  min_depths_to_fill: 3 # Need this many depths in window to fill.
+  do_morph_close: false
+  morph_close_size: 5

@@ -59,7 +59,10 @@ include_directories(
 )
 
 ## Declare a C++ executable
-add_executable(dso_live src/main.cpp)
+add_executable(dso_live
+  src/main.cpp
+  src/ROSOutputWrapper.h
+  src/utils.h)
 
 target_link_libraries(dso_live
     ${DSO_LIBRARY}

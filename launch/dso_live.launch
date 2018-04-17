@@ -4,7 +4,8 @@
   <arg name="image" default="image" />
   <arg name="quiet" default="1" />
 
-  <arg name="fla_calib" default="false" />
+  <arg name="load_params" default="true" />
+  <arg name="param_file" default="dso_ros.yaml" />
 
   <arg name="namespace" default="dso" />
   <arg name="output" default="screen" />
@@ -23,8 +24,9 @@
   <node pkg="dso_ros" type="dso_live" name="dso_live"
         args="calib=$(arg calib) mode=$(arg mode) quiet=$(arg quiet)"
         output="$(arg output)">
+    <rosparam command="load" if="$(arg load_params)"
+              file="$(find dso_ros)/cfg/$(arg param_file)"/>
     <remap from="image" to="$(arg image)" />
-    <param name="fla_calib" value="$(arg fla_calib)" />
   </node>
 
   </group>

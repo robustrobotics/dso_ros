@@ -46,19 +46,7 @@
 #include "FullSystem/HessianBlocks.h"
 #include "util/FrameShell.h"
 
-/**
- * @brief Find a parameter or fail.
- *
- * Copied from fsw/fla_utils/param_utils.h.
- */
-template <typename T>
-void getParamOrFail(const ros::NodeHandle& nh, const std::string& name, T* val) {
-  if (!nh.getParam(name, *val)) {
-    ROS_ERROR("Failed to find parameter: %s", nh.resolveName(name, true).c_str());
-    exit(1);
-  }
-  return;
-}
+#include "./utils.h"
 
 namespace dso
 {
@@ -71,47 +59,42 @@ class FrameShell;
 namespace IOWrap
 {
 
-void publishDepthMap(const image_transport::CameraPublisher& pub,
-                     const std::string& frame_id,
-                     double time, const Eigen::Matrix3f& K,
-                     const cv::Mat1f& depth_est) {
-  // Publish depthmap.
-  std_msgs::Header header;
-  header.stamp.fromSec(time);
-  header.frame_id = frame_id;
-
-  sensor_msgs::CameraInfo::Ptr cinfo(new sensor_msgs::CameraInfo);
-  cinfo->header = header;
-  cinfo->height = depth_est.rows;
-  cinfo->width = depth_est.cols;
-  cinfo->distortion_model = "plumb_bob";
-  cinfo->D = {0.0, 0.0, 0.0, 0.0, 0.0};
-  for (int ii = 0; ii < 3; ++ii) {
-    for (int jj = 0; jj < 3; ++jj) {
-      cinfo->K[ii*3 + jj] = K(ii, jj);
-      cinfo->P[ii*4 + jj] = K(ii, jj);
-      cinfo->R[ii*3 + jj] = 0.0;
-    }
-  }
-  cinfo->P[3] = 0.0;
-  cinfo->P[7] = 0.0;
-  cinfo->P[11] = 0.0;
-  cinfo->R[0] = 1.0;
-  cinfo->R[4] = 1.0;
-  cinfo->R[8] = 1.0;
-
-  cv_bridge::CvImage depth_cvi(header, "32FC1", depth_est);
-
-  pub.publish(depth_cvi.toImageMsg(), cinfo);
-
-  return;
-}
-
 class ROSOutputWrapper : public Output3DWrapper
 {
-public:
-  inline ROSOutputWrapper(const ros::NodeHandle& nh):
-      nh_(nh)
+ public:
+  struct Params {
+    Params() {}
+
+    // Frames.
+    std::string dso_cam_frame{"dso_cam"};
+    std::string dso_world_frame{"dso_world"};
+    std::string metric_cam_frame{"camera"};
+    std::string metric_world_frame{"camera_world"};
+
+    // Scale stuff.
+    bool publish_metric_depthmap = true;
+
+    float min_metric_inc_trans = 0.25f; // Camera must move this much in metric space to contribute to scale.
+    float min_metric_trans = 2.0f;  // Camera must have move this much in metric space to contribute to scale.
+    float scale_divergence_factor = 0.10f; // If diff between estimated scale and live scale exceeds this, reset window.
+    uint32_t max_pose_history = 200;
+    float metric_takeoff_thresh = 1.5f;
+
+    // Regularization stuff.
+    bool publish_coarse_metric_depthmap = true;
+    uint32_t coarse_level = 3;
+
+    bool fill_holes = true;
+    int fill_radius = 3;
+    int min_depths_to_fill = 3; // Need this many depths in window to fill.
+
+    bool do_morph_close = false;
+    int morph_close_size = 5;
+  };
+
+  inline ROSOutputWrapper(const ros::NodeHandle& nh,
+                          const Params& params = Params()):
+      nh_(nh), params_(params)
         {
             printf("OUT: Created ROSOutputWrapper\n");
 
@@ -179,8 +162,8 @@ public:
           geometry_msgs::TransformStamped tf;
 
           tf.header.stamp.fromSec(time);
-          tf.header.frame_id = dso_world_frame_;
-          tf.child_frame_id = dso_cam_frame_;
+          tf.header.frame_id = params_.dso_world_frame;
+          tf.child_frame_id = params_.dso_cam_frame;
           tf.transform.rotation.w = pose.unit_quaternion().w();
           tf.transform.rotation.x = pose.unit_quaternion().x();
           tf.transform.rotation.y = pose.unit_quaternion().y();
@@ -196,8 +179,8 @@ public:
           // Get corresponding metric camera pose.
           geometry_msgs::TransformStamped metric_tf;
           try {
-            metric_tf = tf_buffer_.lookupTransform(metric_world_frame_,
-                                                   metric_cam_frame_,
+            metric_tf = tf_buffer_.lookupTransform(params_.metric_world_frame,
+                                                   params_.metric_cam_frame,
                                                    tf.header.stamp,
                                                    ros::Duration(1.0/15));
           } catch (tf2::TransformException &ex) {
@@ -221,12 +204,12 @@ public:
                             metric_pose.translation()).norm();
           }
 
-          if ((-metric_pose.translation()(1) > metric_takeoff_thresh_) &&
-              (metric_trans > min_metric_inc_trans_)) {
+          if ((-metric_pose.translation()(1) > params_.metric_takeoff_thresh) &&
+              (metric_trans > params_.min_metric_inc_trans)) {
             pose_history_.push_back(pose);
             metric_pose_history_.push_back(metric_pose);
 
-            while (pose_history_.size() > max_pose_history_) {
+            while (pose_history_.size() > params_.max_pose_history) {
               pose_history_.pop_front();
               metric_pose_history_.pop_front();
             }
@@ -295,10 +278,10 @@ public:
           K(1, 2) = calib_hessian_->cyl();
           K(2, 2) = 1.0f;
 
-          publishDepthMap(depth_pub_, dso_cam_frame_, KF->shell->timestamp, K,
-                          depthmap);
+          dso_ros::publishDepthMap(depth_pub_, params_.dso_cam_frame, KF->shell->timestamp, K,
+                                   depthmap);
 
-          if (publish_metric_depthmap_) {
+          if (params_.publish_metric_depthmap) {
             cv::Mat1f metric_depthmap(depthmap.clone());
             float scale = getScale();
 
@@ -312,19 +295,19 @@ public:
               }
             }
 
-            publishDepthMap(metric_depth_pub_, metric_cam_frame_,
-                            KF->shell->timestamp, K, metric_depthmap);
+            dso_ros::publishDepthMap(metric_depth_pub_, params_.metric_cam_frame,
+                                     KF->shell->timestamp, K, metric_depthmap);
 
-            if (publish_coarse_metric_depthmap_) {
+            if (params_.publish_coarse_metric_depthmap) {
               // Create coarse depthmap.
               cv::Mat1f coarse_metric_depthmap =
-                  getCoarseDepthmap(metric_depthmap, coarse_level_);
+                  getCoarseDepthmap(metric_depthmap, params_.coarse_level);
               Eigen::Matrix3f Klvl(K);
-              Klvl /= (1 << coarse_level_);
+              Klvl /= (1 << params_.coarse_level);
               Klvl(2, 2) = 1.0f;
-              publishDepthMap(coarse_metric_depth_pub_, metric_cam_frame_,
-                              KF->shell->timestamp, Klvl,
-                              coarse_metric_depthmap);
+              dso_ros::publishDepthMap(coarse_metric_depth_pub_, params_.metric_cam_frame,
+                                       KF->shell->timestamp, Klvl,
+                                       coarse_metric_depthmap);
             }
 
             // Publish scale.
@@ -335,7 +318,7 @@ public:
             // Publish pose history.
             nav_msgs::Path::Ptr metric_pose_history_msg(new nav_msgs::Path());
             metric_pose_history_msg->header.stamp.fromSec(KF->shell->timestamp);
-            metric_pose_history_msg->header.frame_id = metric_world_frame_;
+            metric_pose_history_msg->header.frame_id = params_.metric_world_frame;
             metric_pose_history_msg->poses.resize(metric_pose_history_.size());
             for (int ii = 0; ii < metric_pose_history_.size(); ++ii) {
               metric_pose_history_msg->poses[ii].pose.position.x =
@@ -358,7 +341,7 @@ public:
 
             nav_msgs::Path::Ptr scaled_pose_history_msg(new nav_msgs::Path());
             scaled_pose_history_msg->header.stamp.fromSec(KF->shell->timestamp);
-            scaled_pose_history_msg->header.frame_id = metric_world_frame_;
+            scaled_pose_history_msg->header.frame_id = params_.metric_world_frame;
             scaled_pose_history_msg->poses.resize(pose_history_.size());
 
             // Weird alignment issues with Eigen::Quaternion going on, hence the
@@ -408,9 +391,9 @@ public:
                             metric_pose_history_.front().translation()).norm();
     }
 
-    if (total_metric_trans < min_metric_trans_) {
+    if (total_metric_trans < params_.min_metric_trans) {
       ROS_ERROR("Not enough metric translation! (%f < %f)",
-                total_metric_trans, min_metric_trans_);
+                total_metric_trans, params_.min_metric_trans);
       return std::numeric_limits<float>::quiet_NaN();
     }
 
@@ -457,7 +440,7 @@ public:
       pose_history_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
-    } else if (std::fabs(live_scale - scale) / scale > scale_divergence_factor_) {
+    } else if (std::fabs(live_scale - scale) / scale > params_.scale_divergence_factor) {
       ROS_ERROR("Scale divergence! Resetting history!");
       pose_history_.clear();
       metric_pose_history_.clear();
@@ -516,10 +499,10 @@ public:
     }
 
     cv::Mat1f coarse_depthmap = depthmap_pyr.back();
-    if (fill_holes_) {
+    if (params_.fill_holes) {
       cv::Mat1f filled_depthmap(coarse_depthmap.clone());
-      for (int ii = fill_radius_; ii < coarse_depthmap.rows - fill_radius_; ++ii) {
-        for (int jj = fill_radius_; jj < coarse_depthmap.cols - fill_radius_; ++jj) {
+      for (int ii = params_.fill_radius; ii < coarse_depthmap.rows - params_.fill_radius; ++ii) {
+        for (int jj = params_.fill_radius; jj < coarse_depthmap.cols - params_.fill_radius; ++jj) {
           float depth_center = coarse_depthmap(ii, jj);
           if (!std::isnan(depth_center)) {
             continue;
@@ -527,8 +510,8 @@ public:
 
           float depth_sum = 0.0f;
           int depth_count = 0;
-          for (int wii = -fill_radius_; wii <= fill_radius_; ++wii) {
-            for (int wjj = -fill_radius_; wjj <= fill_radius_; ++wjj) {
+          for (int wii = -params_.fill_radius; wii <= params_.fill_radius; ++wii) {
+            for (int wjj = -params_.fill_radius; wjj <= params_.fill_radius; ++wjj) {
               float depth = coarse_depthmap(ii + wii, jj + wjj);
               if (!std::isnan(depth)) {
                 depth_sum += depth;
@@ -537,7 +520,7 @@ public:
             }
           }
 
-          if (depth_count > min_depths_to_fill) {
+          if (depth_count > params_.min_depths_to_fill) {
             filled_depthmap(ii, jj) = depth_sum / depth_count;
           }
         }
@@ -546,9 +529,9 @@ public:
       coarse_depthmap = filled_depthmap;
     }
 
-    if (do_morph_close_) {
+    if (params_.do_morph_close) {
       // Apply closing operator to connect fragmented components.
-      cv::Mat struct_el(morph_close_size_, morph_close_size_,
+      cv::Mat struct_el(params_.morph_close_size, params_.morph_close_size,
                         cv::DataType<uint8_t>::type, cv::Scalar(1));
       cv::morphologyEx(coarse_depthmap, coarse_depthmap, cv::MORPH_CLOSE, struct_el);
     }
@@ -560,9 +543,7 @@ public:
   boost::mutex pose_mtx_;
 
   ros::NodeHandle nh_;
-
-  std::string dso_cam_frame_{"dso_cam"};
-  std::string dso_world_frame_{"dso_world"};
+  Params params_;
 
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
   tf2_ros::Buffer tf_buffer_;
@@ -573,19 +554,8 @@ public:
   image_transport::CameraPublisher depth_pub_;
 
   // Scale estimation stuff.
-  bool publish_metric_depthmap_ = true;
   image_transport::CameraPublisher metric_depth_pub_;
-
-  bool publish_coarse_metric_depthmap_ = true;
-  uint32_t coarse_level_ = 3;
   image_transport::CameraPublisher coarse_metric_depth_pub_;
-
-  bool fill_holes_ = true;
-  int fill_radius_ = 3;
-  int min_depths_to_fill = 3; // Need this many depths in window to fill.
-
-  bool do_morph_close_ = false;
-  int morph_close_size_ = 5;
 
   ros::Publisher scale_pub_;
   ros::Publisher scaled_pose_history_pub_;
@@ -593,14 +563,6 @@ public:
 
   std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > pose_history_;
   std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > metric_pose_history_;
-
-  float min_metric_inc_trans_ = 0.25f; // Camera must move this much in metric space to contribute to scale.
-  float min_metric_trans_ = 2.0f;  // Camera must have move this much in metric space to contribute to scale.
-  float scale_divergence_factor_ = 0.10f; // If diff between estimated scale and live scale exceeds this, reset window.
-  uint32_t max_pose_history_ = 200;
-  std::string metric_cam_frame_{"camera"};
-  std::string metric_world_frame_{"camera_world"};
-  float metric_takeoff_thresh_ = 1.5f;
 
   CalibHessian* calib_hessian_ = nullptr;
 };

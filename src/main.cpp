@@ -47,6 +47,7 @@
 #include "cv_bridge/cv_bridge.h"
 
 #include "./ROSOutputWrapper.h"
+#include "./utils.h"
 
 std::string calib = "";
 std::string vignetteFile = "";
@@ -210,28 +211,40 @@ int main( int argc, char** argv )
 	setting_logStuff = false;
 	setting_kfGlobalWeight = 1.3;
 
-  // Parse ROS params.
+  // Parse FLA params.
+  int node_id;
+  dso_ros::getParamOrFail(pnh, "fla/node_id", &node_id);
+
+  double heart_beat_dt;
+  dso_ros::getParamOrFail(pnh, "fla/heart_beat_dt", &heart_beat_dt);
+
+  double alarm_timeout;
+  dso_ros::getParamOrFail(pnh, "fla/alarm_timeout", &alarm_timeout);
+
+  double fail_timeout;
+  dso_ros::getParamOrFail(pnh, "fla/fail_timeout", &fail_timeout);
+
   bool fla_calib = false;
-  pnh.getParam("fla_calib", fla_calib);
+  dso_ros::getParamOrFail(pnh, "fla/use_fla_calib", &fla_calib);
 
   if (fla_calib) {
     // Read FLA calibration params.
     int width, height;
-    getParamOrFail(nh, "/samros/camera/image_width", &width);
-    getParamOrFail(nh, "/samros/camera/image_height", &height);
+    dso_ros::getParamOrFail(nh, "/samros/camera/image_width", &width);
+    dso_ros::getParamOrFail(nh, "/samros/camera/image_height", &height);
 
     double fx, fy, cx, cy;
-    getParamOrFail(nh, "/samros/camera/intrinsics/fu", &fx);
-    getParamOrFail(nh, "/samros/camera/intrinsics/fv", &fy);
-    getParamOrFail(nh, "/samros/camera/intrinsics/pu", &cx);
-    getParamOrFail(nh, "/samros/camera/intrinsics/pv", &cy);
+    dso_ros::getParamOrFail(nh, "/samros/camera/intrinsics/fu", &fx);
+    dso_ros::getParamOrFail(nh, "/samros/camera/intrinsics/fv", &fy);
+    dso_ros::getParamOrFail(nh, "/samros/camera/intrinsics/pu", &cx);
+    dso_ros::getParamOrFail(nh, "/samros/camera/intrinsics/pv", &cy);
 
     double k1, k2, p1, p2, k3;
-    getParamOrFail(nh, "/samros/camera/distortion/k1", &k1);
-    getParamOrFail(nh, "/samros/camera/distortion/k2", &k2);
-    getParamOrFail(nh, "/samros/camera/distortion/p1", &p1);
-    getParamOrFail(nh, "/samros/camera/distortion/p2", &p2);
-    getParamOrFail(nh, "/samros/camera/distortion/k3", &k3);
+    dso_ros::getParamOrFail(nh, "/samros/camera/distortion/k1", &k1);
+    dso_ros::getParamOrFail(nh, "/samros/camera/distortion/k2", &k2);
+    dso_ros::getParamOrFail(nh, "/samros/camera/distortion/p1", &p1);
+    dso_ros::getParamOrFail(nh, "/samros/camera/distortion/p2", &p2);
+    dso_ros::getParamOrFail(nh, "/samros/camera/distortion/k3", &k3);
 
     // Create temporary DSO calibration file.
     std::string tmp_file = (bfs::temp_directory_path() / bfs::unique_path()).native() + ".yaml";
@@ -248,6 +261,28 @@ int main( int argc, char** argv )
 
     calib = tmp_file;
   }
+
+  // Parse ROS params.
+  IOWrap::ROSOutputWrapper::Params params;
+  dso_ros::getParamOrFail(pnh, "frames/dso_cam_frame", &params.dso_cam_frame);
+  dso_ros::getParamOrFail(pnh, "frames/dso_world_frame", &params.dso_world_frame);
+  dso_ros::getParamOrFail(pnh, "frames/metric_cam_frame", &params.metric_cam_frame);
+  dso_ros::getParamOrFail(pnh, "frames/metric_world_frame", &params.metric_world_frame);
+
+  dso_ros::getParamOrFail(pnh, "scale/publish_metric_depthmap", &params.publish_metric_depthmap);
+  dso_ros::getParamOrFail(pnh, "scale/min_metric_inc_trans", &params.min_metric_inc_trans);
+  dso_ros::getParamOrFail(pnh, "scale/min_metric_trans", &params.min_metric_trans);
+  dso_ros::getParamOrFail(pnh, "scale/scale_divergence_factor", &params.scale_divergence_factor);
+  dso_ros::getParamOrFail(pnh, "scale/max_pose_history", &params.max_pose_history);
+  dso_ros::getParamOrFail(pnh, "scale/metric_takeoff_thresh", &params.metric_takeoff_thresh);
+
+  dso_ros::getParamOrFail(pnh, "regularization/publish_coarse_metric_depthmap", &params.publish_coarse_metric_depthmap);
+  dso_ros::getParamOrFail(pnh, "regularization/coarse_level", &params.coarse_level);
+  dso_ros::getParamOrFail(pnh, "regularization/fill_holes", &params.fill_holes);
+  dso_ros::getParamOrFail(pnh, "regularization/fill_radius", &params.fill_radius);
+  dso_ros::getParamOrFail(pnh, "regularization/min_depths_to_fill", &params.min_depths_to_fill);
+  dso_ros::getParamOrFail(pnh, "regularization/do_morph_close", &params.do_morph_close);
+  dso_ros::getParamOrFail(pnh, "regularization/morph_close_size", &params.morph_close_size);
 
   undistorter = Undistort::getUndistorterForFile(calib, gammaFile, vignetteFile);
 
@@ -267,7 +302,7 @@ int main( int argc, char** argv )
   //       (int)undistorter->getSize()[1]));
 
 
-  fullSystem->outputWrapper.push_back(new IOWrap::ROSOutputWrapper(nh));
+  fullSystem->outputWrapper.push_back(new IOWrap::ROSOutputWrapper(nh, params));
 
 
   if(undistorter->photometricUndist != 0)

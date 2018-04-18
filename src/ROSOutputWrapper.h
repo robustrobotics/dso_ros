@@ -79,6 +79,7 @@ class ROSOutputWrapper : public Output3DWrapper
     float scale_divergence_factor = 0.10f; // If diff between estimated scale and live scale exceeds this, reset window.
     uint32_t max_pose_history = 200;
     float metric_takeoff_thresh = 1.5f;
+    float max_angle_diff = 0.0f;
 
     // Regularization stuff.
     bool publish_coarse_metric_depthmap = true;
@@ -218,6 +219,22 @@ class ROSOutputWrapper : public Output3DWrapper
               pose_history_.pop_front();
               metric_pose_history_.pop_front();
             }
+          }
+
+          // Check angle between current pose and last pose in history.
+          float angle_diff = std::numeric_limits<float>::max();
+          if (metric_pose_history_.size() > 0) {
+            Eigen::Matrix4d curr_in_last(metric_pose_history_.back().matrix().inverse() *
+                                         metric_pose.matrix());
+            Eigen::AngleAxisd aa(curr_in_last.block<3, 3>(0, 0));
+            angle_diff = std::fabs(aa.angle() * 180.0 / M_PI);
+          }
+
+          if (angle_diff > params_.max_angle_diff) {
+            ROS_ERROR("ANGLE_DIFF: Exceeds threshold! Resetting history! (%f > %f)",
+                      angle_diff, params_.max_angle_diff);
+            metric_pose_history_.clear();
+            pose_history_.clear();
           }
 
           return;

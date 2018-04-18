@@ -18,6 +18,7 @@ scale:
   scale_divergence_factor: 0.1 # If rel diff between estimated scale and live scale exceeds this, reset window.
   max_pose_history: 200 # Number of poses in window for scale estimation.
   metric_takeoff_thresh: 0.0 # Ignore poses below this altitude.
+  max_angle_diff: 15.0 # If angle diff between current pose and last pose in history exceeds this, reset.
 
 regularization:
   publish_coarse_metric_depthmap: true

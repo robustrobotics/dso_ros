@@ -304,6 +304,7 @@ int main( int argc, char** argv )
   dso_ros::getParamOrFail(pnh, "scale/scale_divergence_factor", &params.scale_divergence_factor);
   dso_ros::getParamOrFail(pnh, "scale/max_pose_history", &params.max_pose_history);
   dso_ros::getParamOrFail(pnh, "scale/metric_takeoff_thresh", &params.metric_takeoff_thresh);
+  dso_ros::getParamOrFail(pnh, "scale/max_angle_diff", &params.max_angle_diff);
 
   dso_ros::getParamOrFail(pnh, "regularization/publish_coarse_metric_depthmap", &params.publish_coarse_metric_depthmap);
   dso_ros::getParamOrFail(pnh, "regularization/coarse_level", &params.coarse_level);

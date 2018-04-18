@@ -312,20 +312,21 @@ class ROSOutputWrapper : public Output3DWrapper
                 std::vector<cv::Mat1f> upsampled_depthmaps(params_.coarse_level + 1);
                 upsampled_depthmaps.back() = coarse_metric_depthmap.clone();
                 for (int lvl = params_.coarse_level - 1; lvl >= 0; lvl--) {
-                  int wlvl = depthmap.cols >> lvl;
-                  int hlvl = depthmap.rows >> lvl;
-                  upsampled_depthmaps[lvl] =
-                      cv::Mat1f(hlvl, wlvl, std::numeric_limits<float>::quiet_NaN());
-                  for (int ii = 0; ii < hlvl; ++ii) {
-                    for (int jj = 0; jj < wlvl; ++jj) {
-                      float depth = upsampled_depthmaps[lvl + 1](ii << 1, jj << 1);
-                      if (!std::isnan(depth) && (depth > 0.0f)) {
-                        upsampled_depthmaps[lvl](ii, jj) = depth;
-                      }
-                    }
-                  }
+                  cv::pyrUp(upsampled_depthmaps[lvl + 1], upsampled_depthmaps[lvl]);
+                  // int wlvl = depthmap.cols >> lvl;
+                  // int hlvl = depthmap.rows >> lvl;
+                  // upsampled_depthmaps[lvl] =
+                  //     cv::Mat1f(hlvl, wlvl, std::numeric_limits<float>::quiet_NaN());
+                  // for (int ii = 0; ii < hlvl; ++ii) {
+                  //   for (int jj = 0; jj < wlvl; ++jj) {
+                  //     float depth = upsampled_depthmaps[lvl + 1](ii >> 1, jj >> 1);
+                  //     if (!std::isnan(depth) && (depth > 0.0f)) {
+                  //       upsampled_depthmaps[lvl](ii, jj) = depth;
+                  //     }
+                  //   }
+                  // }
                 }
-                coarse_metric_depthmap = upsampled_depthmaps[0];
+                coarse_metric_depthmap = upsampled_depthmaps.front();
                 Klvl = K;
               }
 

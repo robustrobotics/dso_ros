@@ -92,6 +92,9 @@ class ROSOutputWrapper : public Output3DWrapper
 
     bool do_morph_close = false;
     int morph_close_size = 5;
+
+    bool do_median_filter = true;
+    int median_filter_size = 5;
   };
 
   inline ROSOutputWrapper(const ros::NodeHandle& nh,
@@ -559,6 +562,10 @@ class ROSOutputWrapper : public Output3DWrapper
       cv::Mat struct_el(params_.morph_close_size, params_.morph_close_size,
                         cv::DataType<uint8_t>::type, cv::Scalar(1));
       cv::morphologyEx(coarse_depthmap, coarse_depthmap, cv::MORPH_CLOSE, struct_el);
+    }
+
+    if (params_.do_median_filter) {
+      cv::medianBlur(coarse_depthmap, coarse_depthmap, params_.median_filter_size);
     }
 
     return coarse_depthmap;

@@ -313,6 +313,8 @@ int main( int argc, char** argv )
   dso_ros::getParamOrFail(pnh, "regularization/min_depths_to_fill", &params.min_depths_to_fill);
   dso_ros::getParamOrFail(pnh, "regularization/do_morph_close", &params.do_morph_close);
   dso_ros::getParamOrFail(pnh, "regularization/morph_close_size", &params.morph_close_size);
+  dso_ros::getParamOrFail(pnh, "regularization/do_median_filter", &params.do_median_filter);
+  dso_ros::getParamOrFail(pnh, "regularization/median_filter_size", &params.median_filter_size);
 
   undistorter = Undistort::getUndistorterForFile(calib, gammaFile, vignetteFile);
 

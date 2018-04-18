@@ -28,3 +28,5 @@ regularization:
   min_depths_to_fill: 3 # Need this many depths in window to fill.
   do_morph_close: false
   morph_close_size: 5
+  do_median_filter: true
+  median_filter_size: 5

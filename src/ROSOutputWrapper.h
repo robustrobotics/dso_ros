@@ -481,10 +481,11 @@ class ROSOutputWrapper : public Output3DWrapper
     ROS_ERROR("SCALE(%i): %f", num_poses, scale);
 
     if (scale <= 0.0f) {
-      ROS_ERROR("Negative scale estimated (%f)! Resetting history!", scale);
+      ROS_ERROR("Negative scale estimated (%f)! Resetting DSO!", scale);
       pose_history_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
+      setting_fullResetRequested = true;      
     } else if (std::fabs(live_scale - scale) / scale > params_.scale_divergence_factor) {
       ROS_ERROR("Scale divergence! Resetting history!");
       pose_history_.clear();

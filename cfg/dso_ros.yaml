@@ -20,6 +20,8 @@ scale:
   metric_takeoff_thresh: 0.0 # Ignore poses below this altitude.
   max_angle_diff: 10.0 # If angle diff between current pose and last pose in history exceeds this, reset.
 
+  publish_scaled_cloud: true
+
 regularization:
   publish_coarse_metric_depthmap: true
   coarse_level: 3 # Coarse pyramid level.

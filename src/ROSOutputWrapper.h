@@ -37,11 +37,12 @@
 #include <tf2_ros/transform_listener.h>
 #include <cv_bridge/cv_bridge.h>
 
+#include <sensor_msgs/PointCloud2.h>
+#include <pcl_conversions/pcl_conversions.h>
+
 #include "boost/thread.hpp"
 #include "util/MinimalImage.h"
 #include "IOWrapper/Output3DWrapper.h"
-
-
 
 #include "FullSystem/HessianBlocks.h"
 #include "util/FrameShell.h"
@@ -81,6 +82,8 @@ class ROSOutputWrapper : public Output3DWrapper
     float metric_takeoff_thresh = 1.5f;
     float max_angle_diff = 0.0f;
 
+    bool publish_scaled_cloud = true;
+
     // Regularization stuff.
     bool publish_coarse_metric_depthmap = true;
     uint32_t coarse_level = 3;
@@ -112,6 +115,7 @@ class ROSOutputWrapper : public Output3DWrapper
             scale_pub_ = nh_.advertise<std_msgs::Float32>("metric/scale", 5);
             scaled_pose_history_pub_ = nh_.advertise<nav_msgs::Path>("metric/scaled_pose_history", 5);
             metric_pose_history_pub_ = nh_.advertise<nav_msgs::Path>("metric/pose_history", 5);
+            scaled_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("metric/scaled_cloud", 5);
         }
 
         virtual ~ROSOutputWrapper()
@@ -137,10 +141,12 @@ class ROSOutputWrapper : public Output3DWrapper
 
 
 
-        virtual void publishKeyframes( std::vector<FrameHessian*> &frames, bool final, CalibHessian* HCalib) override
-        {
-            // for(FrameHessian* f : frames)
-            // {
+        void publishKeyframes(std::vector<FrameHessian*> &frames,
+                              bool final,
+                              CalibHessian* HCalib) override {
+          boost::lock_guard<boost::mutex> lock(pose_mtx_);
+
+            // for(FrameHessian* f : frames) {
             //     printf("OUT: KF %d (%s) (id %d, tme %f): %d active, %d marginalized, %d immature points. CameraToWorld:\n",
             //            f->frameID,
             //            final ? "final" : "non-final",
@@ -151,14 +157,84 @@ class ROSOutputWrapper : public Output3DWrapper
 
 
             //     int maxWrite = 5;
-            //     for(PointHessian* p : f->pointHessians)
-            //     {
+            //     for(PointHessian* p : f->pointHessians) {
             //         printf("OUT: Example Point x=%.1f, y=%.1f, idepth=%f, idepth std.dev. %f, %d inlier-residuals\n",
             //                p->u, p->v, p->idepth_scaled, sqrt(1.0f / p->idepth_hessian), p->numGoodResiduals );
             //         maxWrite--;
             //         if(maxWrite==0) break;
             //     }
             // }
+
+            if (params_.publish_scaled_cloud) {
+              float scale = getScale();
+
+              if (std::isnan(scale)) {
+                return;
+              }
+
+              Eigen::Matrix3f K(Eigen::Matrix3f::Zero());
+              K(0, 0) = HCalib->fxl();
+              K(1, 1) = HCalib->fyl();
+              K(0, 2) = HCalib->cxl();
+              K(1, 2) = HCalib->cyl();
+              K(2, 2) = 1.0f;
+              Eigen::Matrix3f Kinv(K.inverse());
+
+              // Create point cloud relative to last DSO frame in the history
+              // which we then publish relative to the last metric pose in the
+              // history (i.e. treat the cloud like a depthmap).
+              pcl::PointCloud<pcl::PointXYZ> cloud;
+
+              // Weird alignment issues with Eigen::Quaternion going on, hence
+              // the roundabout way of computing the points relative to the last
+              // pose in the history.
+              Eigen::Quaternion<double, Eigen::DontAlign> quat0(pose_history_.back().unit_quaternion());
+              Eigen::Vector3d trans0(pose_history_.back().translation());
+              Eigen::Quaterniond quat0inv(quat0.inverse());
+              Eigen::Vector3d trans0inv(-(quat0inv * trans0));
+              double time0 = pose_history_time_.back();
+
+              for (FrameHessian* f : frames) {
+                Eigen::Quaternion<double, Eigen::DontAlign> quat(f->shell->camToWorld.unit_quaternion());
+                Eigen::Vector3d trans(f->shell->camToWorld.translation());
+
+                // Eigen::Quaternion<double, Eigen::DontAlign>quat = quat0;
+                // Eigen::Vector3d trans = trans0;
+
+                for (PointHessian* p : f->pointHessians) {
+                  float idepth_var_max = 1; // TODO(wng): Make this a param.
+                  // if ((p->idepth > 0.0) && (p->idepth_hessian < idepth_var_max)) {
+                    Eigen::Vector3d u_hom(p->u, p->v, 1.0f);
+                    Eigen::Vector3d p_cam(Kinv.cast<double>() * u_hom / p->idepth);
+                    Eigen::Vector3d p_world(quat * p_cam + trans);
+                    Eigen::Vector3d p0(quat0inv * p_world + trans0inv);
+                    p0 *= scale;
+
+                    cloud.points.push_back(pcl::PointXYZ());
+                    cloud.points.back().x = p0(0);
+                    cloud.points.back().y = p0(1);
+                    cloud.points.back().z = p0(2);
+                  // }
+                }
+              }
+
+              ROS_ERROR("cloud size: %i", cloud.points.size());
+
+              cloud.width = cloud.points.size();
+              cloud.height = 1;
+              cloud.is_dense = false;
+
+              sensor_msgs::PointCloud2::Ptr scaled_cloud_msg(new sensor_msgs::PointCloud2());
+              pcl::toROSMsg(cloud, *scaled_cloud_msg);
+
+              scaled_cloud_msg->header = std_msgs::Header();
+              scaled_cloud_msg->header.stamp.fromSec(time0);
+              scaled_cloud_msg->header.frame_id = params_.metric_cam_frame;
+
+              scaled_cloud_pub_.publish(scaled_cloud_msg);
+          }
+
+          return;
         }
 
         void publishCamPose(const uint32_t id, const double time,
@@ -212,10 +288,12 @@ class ROSOutputWrapper : public Output3DWrapper
 
           if ((-metric_pose.translation()(1) > params_.metric_takeoff_thresh) &&
               (metric_trans > params_.min_metric_inc_trans)) {
+            pose_history_time_.push_back(time);
             pose_history_.push_back(pose);
             metric_pose_history_.push_back(metric_pose);
 
             while (pose_history_.size() > params_.max_pose_history) {
+              pose_history_time_.pop_front();
               pose_history_.pop_front();
               metric_pose_history_.pop_front();
             }
@@ -611,6 +689,9 @@ class ROSOutputWrapper : public Output3DWrapper
   ros::Publisher scaled_pose_history_pub_;
   ros::Publisher metric_pose_history_pub_;
 
+  ros::Publisher scaled_cloud_pub_;
+
+  std::deque<double> pose_history_time_; // Timestamps in pose history.
   std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > pose_history_;
   std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > metric_pose_history_;
 

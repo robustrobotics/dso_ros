@@ -41,8 +41,12 @@ catkin_package(
     cv_bridge
     tf2_ros
     image_transport
-    fla_msgs
-)
+    pcl_ros
+    pcl_msgs
+    pcl_conversions
+    fla_msgs)
+
+find_package(PCL 1.7 REQUIRED COMPONENTS common)
 
 ###########
 ## Build ##
@@ -58,6 +62,7 @@ include_directories(
   ${DSO_PATH}/thirdparty/Sophus
   ${Pangolin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
+  ${PCL_INCLUDE_DIRS}
   ${catkin_INCLUDE_DIRS}
 )
 
@@ -67,10 +72,13 @@ add_executable(dso_live
   src/ROSOutputWrapper.h
   src/utils.h)
 
+target_compile_definitions(dso_live PUBLIC ${PCL_DEFINITIONS})
+
 add_dependencies(dso_live fla_msgs_generate_messages_cpp)
 
 target_link_libraries(dso_live
     ${DSO_LIBRARY}
     ${Pangolin_LIBRARIES}
     ${OpenCV_LIBS}
+    ${PCL_LIBRARIES}
     ${catkin_LIBRARIES})

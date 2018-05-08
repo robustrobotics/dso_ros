@@ -28,6 +28,7 @@
 #include <limits>
 #include <deque>
 #include <vector>
+#include <unordered_map>
 
 #include <std_msgs/Float32.h>
 #include <nav_msgs/Path.h>
@@ -101,6 +102,15 @@ class ROSOutputWrapper : public Output3DWrapper
     int median_filter_size = 5;
   };
 
+  struct KeyFrame {
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+    uint32_t id;
+    double time;
+    Eigen::Quaternion<double, Eigen::DontAlign> quat;
+    Eigen::Vector3d trans;
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+  };
+
   inline ROSOutputWrapper(const ros::NodeHandle& nh,
                           const Params& params = Params()):
       nh_(nh), params_(params)
@@ -139,8 +149,6 @@ class ROSOutputWrapper : public Output3DWrapper
             // }
         }
 
-
-
         void publishKeyframes(std::vector<FrameHessian*> &frames,
                               bool final,
                               CalibHessian* HCalib) override {
@@ -164,7 +172,13 @@ class ROSOutputWrapper : public Output3DWrapper
             //         if(maxWrite==0) break;
             //     }
             // }
+        }
 
+        void publishKeyframes(std::vector<FrameHessian*> &frames,
+                              const std::vector<SE3, Eigen::aligned_allocator<SE3> >& poses,
+                              bool final,
+                              CalibHessian* HCalib) override {
+          boost::lock_guard<boost::mutex> lock(pose_mtx_);
             if (params_.publish_scaled_cloud) {
               float scale = getScale();
 
@@ -180,9 +194,53 @@ class ROSOutputWrapper : public Output3DWrapper
               K(2, 2) = 1.0f;
               Eigen::Matrix3f Kinv(K.inverse());
 
-              // Create point cloud relative to last DSO frame in the history
-              // which we then publish relative to the last metric pose in the
-              // history (i.e. treat the cloud like a depthmap).
+              // Create/update data for each active keyframe.
+              for (int ii = 0; ii < frames.size(); ++ii) {
+                const auto& frame = frames[ii];
+                auto& kf = keyframes_[frame->shell->id];
+                if (kf == nullptr) {
+                  // Create new kf.
+                  kf = std::make_shared<KeyFrame>();
+                }
+
+                kf->id = frame->shell->id;
+                kf->time = frame->shell->timestamp;
+                kf->quat = poses[ii].unit_quaternion();
+                kf->trans = poses[ii].translation();
+                kf->cloud.clear();
+
+                // Create point cloud.
+                for (PointHessian* p : frame->pointHessians) {
+                  float idepth_var_max = 1; // TODO(wng): Make this a param.
+                  float idepth_var = 1.0 / p->idepth_hessian;
+                  if ((p->idepth > 0.0) && (idepth_var < idepth_var_max)) {
+                    Eigen::Vector3d u_hom(p->u, p->v, 1.0f);
+                    Eigen::Vector3d p_cam(Kinv.cast<double>() * u_hom / p->idepth);
+                    kf->cloud.points.emplace_back(p_cam(0), p_cam(1), p_cam(2));
+                  }
+                }
+
+                for (PointHessian* p : frame->pointHessiansMarginalized) {
+                  float idepth_var_max = 1; // TODO(wng): Make this a param.
+                  float idepth_var = 1.0 / p->idepth_hessian;
+                  if ((p->idepth > 0.0) && (idepth_var < idepth_var_max)) {
+                    Eigen::Vector3d u_hom(p->u, p->v, 1.0f);
+                    Eigen::Vector3d p_cam(Kinv.cast<double>() * u_hom / p->idepth);
+                    kf->cloud.points.emplace_back(p_cam(0), p_cam(1), p_cam(2));
+                  }
+                }
+
+                kf->cloud.width = kf->cloud.points.size();
+                kf->cloud.height = 1;
+                kf->cloud.is_dense = false;
+
+                keyframes_[frame->shell->id] = kf; // Overwrite just in case.
+              }
+
+              // Create full point cloud from all keyframes relative to last DSO
+              // frame in the history which we then publish relative to the last
+              // metric pose in the history (i.e. treat the cloud like a
+              // depthmap).
               pcl::PointCloud<pcl::PointXYZ> cloud;
 
               // Weird alignment issues with Eigen::Quaternion going on, hence
@@ -194,31 +252,23 @@ class ROSOutputWrapper : public Output3DWrapper
               Eigen::Vector3d trans0inv(-(quat0inv * trans0));
               double time0 = pose_history_time_.back();
 
-              for (FrameHessian* f : frames) {
-                Eigen::Quaternion<double, Eigen::DontAlign> quat(f->shell->camToWorld.unit_quaternion());
-                Eigen::Vector3d trans(f->shell->camToWorld.translation());
+              for (const auto& kv : keyframes_) {
+                const auto& kf = kv.second;
+                for (int pidx = 0; pidx < kf->cloud.points.size(); ++pidx) {
+                  Eigen::Vector3d p_cam(kf->cloud.points[pidx].x,
+                                        kf->cloud.points[pidx].y,
+                                        kf->cloud.points[pidx].z);
 
-                // Eigen::Quaternion<double, Eigen::DontAlign>quat = quat0;
-                // Eigen::Vector3d trans = trans0;
-
-                for (PointHessian* p : f->pointHessians) {
-                  float idepth_var_max = 1; // TODO(wng): Make this a param.
-                  // if ((p->idepth > 0.0) && (p->idepth_hessian < idepth_var_max)) {
-                    Eigen::Vector3d u_hom(p->u, p->v, 1.0f);
-                    Eigen::Vector3d p_cam(Kinv.cast<double>() * u_hom / p->idepth);
-                    Eigen::Vector3d p_world(quat * p_cam + trans);
-                    Eigen::Vector3d p0(quat0inv * p_world + trans0inv);
-                    p0 *= scale;
-
-                    cloud.points.push_back(pcl::PointXYZ());
-                    cloud.points.back().x = p0(0);
-                    cloud.points.back().y = p0(1);
-                    cloud.points.back().z = p0(2);
-                  // }
+                  Eigen::Vector3d p_world(kf->quat * p_cam + kf->trans);
+                  Eigen::Vector3d p0(quat0inv * p_world + trans0inv);
+                  p0 *= scale;
+                  cloud.points.emplace_back(p0(0), p0(1), p0(2));
                 }
               }
 
-              ROS_ERROR("cloud size: %i", cloud.points.size());
+              if (cloud.points.size() == 0) {
+                return;
+              }
 
               cloud.width = cloud.points.size();
               cloud.height = 1;
@@ -313,6 +363,7 @@ class ROSOutputWrapper : public Output3DWrapper
                       angle_diff, params_.max_angle_diff);
             metric_pose_history_.clear();
             pose_history_.clear();
+            keyframes_.clear();
           }
 
           return;
@@ -562,11 +613,13 @@ class ROSOutputWrapper : public Output3DWrapper
       ROS_ERROR("Negative scale estimated (%f)! Resetting DSO!", scale);
       pose_history_.clear();
       metric_pose_history_.clear();
+      keyframes_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
       setting_fullResetRequested = true;      
     } else if (std::fabs(live_scale - scale) / scale > params_.scale_divergence_factor) {
       ROS_ERROR("Scale divergence! Resetting history!");
       pose_history_.clear();
+      keyframes_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
     }
@@ -694,6 +747,9 @@ class ROSOutputWrapper : public Output3DWrapper
   std::deque<double> pose_history_time_; // Timestamps in pose history.
   std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > pose_history_;
   std::deque<Sophus::SE3d, Eigen::aligned_allocator<Sophus::SE3d> > metric_pose_history_;
+
+  using KeyFrameMap = std::unordered_map<uint32_t, std::shared_ptr<KeyFrame> >;
+  KeyFrameMap keyframes_;
 
   CalibHessian* calib_hessian_ = nullptr;
 };

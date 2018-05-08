@@ -306,6 +306,8 @@ int main( int argc, char** argv )
   dso_ros::getParamOrFail(pnh, "scale/metric_takeoff_thresh", &params.metric_takeoff_thresh);
   dso_ros::getParamOrFail(pnh, "scale/max_angle_diff", &params.max_angle_diff);
 
+  dso_ros::getParamOrFail(pnh, "scale/publish_scaled_cloud", &params.publish_scaled_cloud);
+
   dso_ros::getParamOrFail(pnh, "regularization/publish_coarse_metric_depthmap", &params.publish_coarse_metric_depthmap);
   dso_ros::getParamOrFail(pnh, "regularization/coarse_level", &params.coarse_level);
   dso_ros::getParamOrFail(pnh, "regularization/match_source_resolution", &params.match_source_resolution);

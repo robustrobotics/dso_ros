@@ -12,7 +12,13 @@ find_package(catkin REQUIRED COMPONENTS
   fla_msgs
 )
 
-set(DSO_PATH $ENV{DSO_PATH})
+if (DEFINED ENV{DSO_PATH})
+  set(DSO_PATH $ENV{DSO_PATH})
+elseif (DEFINED ENV{GTSC_PREFIX_PATH})
+  set(DSO_PATH $ENV{GTSC_PREFIX_PATH}/../dso)
+else ()
+  message(FATAL_WARNING "Could not find DSO!")
+endif ()
 message("\n\n---- LOOKING FOR DSO at\n\"${DSO_PATH}\"")
 
 

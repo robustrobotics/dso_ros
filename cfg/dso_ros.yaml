@@ -12,7 +12,7 @@ frames:
   metric_world_frame: "camera_world"
 
 scale:
-  publish_metric_depthmap: false
+  publish_metric_depthmap: true
   min_metric_inc_trans: 0.25 # Camera must move this much in metric space to contribute to scale.
   min_metric_trans: 1.0 # Camera must have move this much in metric space to estimate scale.
   scale_divergence_factor: 0.1 # If rel diff between estimated scale and live scale exceeds this, reset window.
@@ -20,7 +20,7 @@ scale:
   metric_takeoff_thresh: 0.0 # Ignore poses below this altitude.
   max_angle_diff: 10.0 # If angle diff between current pose and last pose in history exceeds this, reset.
 
-  publish_scaled_cloud: true
+  publish_scaled_cloud: false
 
 regularization:
   publish_coarse_metric_depthmap: true

@@ -615,9 +615,9 @@ class ROSOutputWrapper : public Output3DWrapper
     transn *= scale;
 
     Eigen::Quaterniond scaled_quat(
-        metric_pose_history_.front().unit_quaternion() * quat);
+        metric_pose_history_.front().unit_quaternion() * quatn);
     Eigen::Vector3d scaled_trans(
-        metric_pose_history_.front().unit_quaternion() * trans +
+        metric_pose_history_.front().unit_quaternion() * transn +
         metric_pose_history_.front().translation());
     float trans_diff = (scaled_trans - metric_pose_history_.back().translation()).norm();
 
@@ -627,16 +627,16 @@ class ROSOutputWrapper : public Output3DWrapper
       metric_pose_history_.clear();
       keyframes_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
-      setting_fullResetRequested = true;      
+      setting_fullResetRequested = true;
     } else if (std::fabs(live_scale - scale) / scale > params_.scale_divergence_factor) {
       ROS_ERROR("Scale divergence! Resetting history!");
       pose_history_.clear();
       keyframes_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
-    } else if (diff > 5.0) {
-      ROS_ERROR("Scaled DSO inconsistent with metric poses (%f diff)! Resetting DSO!",
-                trans_diff);
+    } else if (trans_diff > 5.0) {
+      ROS_ERROR("Trans diff exceeds threshold ! (%f > %f)! Resetting DSO!",
+                trans_diff, 5.0f);
       pose_history_.clear();
       metric_pose_history_.clear();
       keyframes_.clear();

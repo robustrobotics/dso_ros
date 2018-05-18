@@ -609,6 +609,18 @@ class ROSOutputWrapper : public Output3DWrapper
     ROS_ERROR("LIVE_SCALE(%i): %f", num_poses, live_scale);
     ROS_ERROR("SCALE(%i): %f", num_poses, scale);
 
+    // Convert last pose to metric frame.
+    Eigen::Quaterniond quatn(quat0inv * pose_history_.back().unit_quaternion());
+    Eigen::Vector3d transn(quat0inv * pose_history_.back().translation() + trans0inv);
+    transn *= scale;
+
+    Eigen::Quaterniond scaled_quat(
+        metric_pose_history_.front().unit_quaternion() * quat);
+    Eigen::Vector3d scaled_trans(
+        metric_pose_history_.front().unit_quaternion() * trans +
+        metric_pose_history_.front().translation());
+    float trans_diff = (scaled_trans - metric_pose_history_.back().translation()).norm();
+
     if (scale <= 0.0f) {
       ROS_ERROR("Negative scale estimated (%f)! Resetting DSO!", scale);
       pose_history_.clear();
@@ -622,6 +634,14 @@ class ROSOutputWrapper : public Output3DWrapper
       keyframes_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
+    } else if (diff > 5.0) {
+      ROS_ERROR("Scaled DSO inconsistent with metric poses (%f diff)! Resetting DSO!",
+                trans_diff);
+      pose_history_.clear();
+      metric_pose_history_.clear();
+      keyframes_.clear();
+      scale = std::numeric_limits<float>::quiet_NaN();
+      setting_fullResetRequested = true;
     }
 
     return scale;

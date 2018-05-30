@@ -169,6 +169,7 @@ void vidCb(const sensor_msgs::ImageConstPtr img)
 
 	if(setting_fullResetRequested || fullSystem->isLost)
 	{
+	  ROS_ERROR("Resetting DSO!");
 		std::vector<IOWrap::Output3DWrapper*> wraps = fullSystem->outputWrapper;
 		delete fullSystem;
 		for(IOWrap::Output3DWrapper* ow : wraps) ow->reset();

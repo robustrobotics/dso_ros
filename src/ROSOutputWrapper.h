@@ -292,7 +292,7 @@ class ROSOutputWrapper : public Output3DWrapper
 	      // If ratio of close points to far points exceeds
 	      // threshold, don't publish because it might be a bad
 	      // initialization.
-	      const float max_close_ratio = 0.2f;
+	      const float max_close_ratio = 0.1f;
 	      const float close_ratio = static_cast<float>(num_close_pts) / cloud.points.size();
 	      if (close_ratio < max_close_ratio) {		
 		scaled_cloud_pub_.publish(scaled_cloud_msg);			      				

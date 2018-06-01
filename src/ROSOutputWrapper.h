@@ -253,6 +253,7 @@ class ROSOutputWrapper : public Output3DWrapper
               Eigen::Vector3d trans0inv(-(quat0inv * trans0));
               double time0 = pose_history_time_.back();
 
+	      uint32_t num_close_pts = 0;	      
               for (const auto& kv : keyframes_) {
                 const auto& kf = kv.second;
                 for (int pidx = 0; pidx < kf->cloud.points.size(); ++pidx) {
@@ -263,6 +264,12 @@ class ROSOutputWrapper : public Output3DWrapper
                   Eigen::Vector3d p_world(kf->quat * p_cam + kf->trans);
                   Eigen::Vector3d p0(quat0inv * p_world + trans0inv);
                   p0 *= scale;
+
+		  const float close_ratio_dist = 5.0f;
+		  if (p0.norm() < close_ratio_dist) {
+		    num_close_pts++;
+		  }
+		  
                   cloud.points.emplace_back(p0(0), p0(1), p0(2));
                 }
               }
@@ -270,7 +277,7 @@ class ROSOutputWrapper : public Output3DWrapper
               if (cloud.points.size() == 0) {
                 return;
               }
-
+	      
               cloud.width = cloud.points.size();
               cloud.height = 1;
               cloud.is_dense = false;
@@ -282,7 +289,17 @@ class ROSOutputWrapper : public Output3DWrapper
               scaled_cloud_msg->header.stamp.fromSec(time0);
               scaled_cloud_msg->header.frame_id = params_.metric_cam_frame;
 
-              scaled_cloud_pub_.publish(scaled_cloud_msg);
+	      // If ratio of close points to far points exceeds
+	      // threshold, don't publish because it might be a bad
+	      // initialization.
+	      const float max_close_ratio = 0.2f;
+	      const float close_ratio = static_cast<float>(num_close_pts) / cloud.points.size();
+	      if (close_ratio < max_close_ratio) {		
+		scaled_cloud_pub_.publish(scaled_cloud_msg);			      				
+	      } else {
+		ROS_ERROR("[dso_ros] close_ratio failed (%f > %f), censoring output.",
+			  close_ratio, max_close_ratio);
+	      }
           }
 
           return;
@@ -571,7 +588,7 @@ class ROSOutputWrapper : public Output3DWrapper
                 total_metric_trans, params_.min_metric_trans);
       return std::numeric_limits<float>::quiet_NaN();
     }
-
+       
     // Solve least squares to estimate scale.
     Eigen::VectorXf trans(num_poses * 3);
     Eigen::VectorXf metric_trans(num_poses * 3);

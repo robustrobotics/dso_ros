@@ -302,6 +302,7 @@ int main( int argc, char** argv )
   dso_ros::getParamOrFail(pnh, "scale/publish_metric_depthmap", &params.publish_metric_depthmap);
   dso_ros::getParamOrFail(pnh, "scale/min_metric_inc_trans", &params.min_metric_inc_trans);
   dso_ros::getParamOrFail(pnh, "scale/min_metric_trans", &params.min_metric_trans);
+  dso_ros::getParamOrFail(pnh, "scale/max_scaled_trans_diff", &params.max_scaled_trans_diff);   
   dso_ros::getParamOrFail(pnh, "scale/scale_divergence_factor", &params.scale_divergence_factor);
   dso_ros::getParamOrFail(pnh, "scale/max_pose_history", &params.max_pose_history);
   dso_ros::getParamOrFail(pnh, "scale/metric_takeoff_thresh", &params.metric_takeoff_thresh);

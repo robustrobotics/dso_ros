@@ -78,6 +78,7 @@ class ROSOutputWrapper : public Output3DWrapper
 
     float min_metric_inc_trans = 0.25f; // Camera must move this much in metric space to contribute to scale.
     float min_metric_trans = 2.0f;  // Camera must have move this much in metric space to contribute to scale.
+    float max_scaled_trans_diff = 2.5f; // If scaled dso position is farther from metric than this, reset.
     float scale_divergence_factor = 0.10f; // If diff between estimated scale and live scale exceeds this, reset window.
     uint32_t max_pose_history = 200;
     float metric_takeoff_thresh = 1.5f;
@@ -634,9 +635,9 @@ class ROSOutputWrapper : public Output3DWrapper
       keyframes_.clear();
       metric_pose_history_.clear();
       scale = std::numeric_limits<float>::quiet_NaN();
-    } else if (trans_diff > 5.0) {
+    } else if (trans_diff > params_.max_scaled_trans_diff) {
       ROS_ERROR("Trans diff exceeds threshold ! (%f > %f)! Resetting DSO!",
-                trans_diff, 5.0f);
+                trans_diff, params_.max_scaled_trans_diff);
       pose_history_.clear();
       metric_pose_history_.clear();
       keyframes_.clear();

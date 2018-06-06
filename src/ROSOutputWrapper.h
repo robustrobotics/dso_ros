@@ -295,10 +295,12 @@ class ROSOutputWrapper : public Output3DWrapper
 	      const float max_close_ratio = 0.2f;
 	      const float close_ratio = static_cast<float>(num_close_pts) / cloud.points.size();
 	      if (close_ratio < max_close_ratio) {		
-		scaled_cloud_pub_.publish(scaled_cloud_msg);			      				
+		scaled_cloud_pub_.publish(scaled_cloud_msg);
+		censor_depthmap_ = false;
 	      } else {
 		ROS_ERROR("[dso_ros] close_ratio failed (%f > %f), censoring output.",
 			  close_ratio, max_close_ratio);
+		censor_depthmap_ = true;
 	      }
 
 	      ROS_ERROR("RATIO: %f\n", close_ratio);
@@ -432,6 +434,10 @@ class ROSOutputWrapper : public Output3DWrapper
             return;
           }
 
+	  if (censor_depthmap_) {
+	    return;
+	  }
+	  
           cv::Mat1f depthmap(image->h, image->w, std::numeric_limits<float>::quiet_NaN());
           for (int ii = 0; ii < image->h; ++ii) {
             for (int jj = 0; jj < image->w; ++jj) {
@@ -778,6 +784,7 @@ class ROSOutputWrapper : public Output3DWrapper
   image_transport::CameraPublisher metric_depth_pub_;
   image_transport::CameraPublisher coarse_metric_depth_pub_;
 
+  bool censor_depthmap_ = false;
   ros::Publisher scale_pub_;
   ros::Publisher scaled_pose_history_pub_;
   ros::Publisher metric_pose_history_pub_;
